@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base reset & body ─────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, sans-serif;
+  background: hsl(240, 70%, 6%);
+  color: hsl(220, 20%, 90%);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: hsl(240, 40%, 8%); }
+::-webkit-scrollbar-thumb  { background: hsl(230, 40%, 25%); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(230, 60%, 40%); }
+
+/* ── Selection ─────────────────────────────────────────── */
+::selection { background: rgba(59, 91, 255, 0.35); }
+
+/* ── Glassmorphism utility ─────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ── Shimmer animation utility ─────────────────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.04) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s linear infinite;
+}
+
+/* ── Status badge utilities ────────────────────────────── */
+.badge-active   { @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/25; }
+.badge-pending  { @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15  text-amber-400  border border-amber-500/25; }
+.badge-failed   { @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/15    text-red-400    border border-red-500/25; }
+.badge-phase    { @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-trust-500/15  text-trust-300  border border-trust-500/25; }
+
+/* ── Neon text utilities ───────────────────────────────── */
+.text-neon-green  { color: #00ff88; text-shadow: 0 0 12px rgba(0,255,136,0.5); }
+.text-neon-blue   { color: #00d4ff; text-shadow: 0 0 12px rgba(0,212,255,0.5); }
+.text-neon-purple { color: #bf5af2; text-shadow: 0 0 12px rgba(191,90,242,0.5); }
+
+/* ── Card hover lift ───────────────────────────────────── */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 40px rgba(59,91,255,0.2);
+}
+
+/* ── Animated border gradient ──────────────────────────── */
+.border-glow {
+  position: relative;
+}
+.border-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(59,91,255,0.6), rgba(0,255,136,0.4), rgba(191,90,242,0.4));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
