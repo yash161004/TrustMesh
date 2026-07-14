@@ -1,31 +1,32 @@
 # TrustMesh Backend Dependencies
 # Phase 0: Foundation
+# Tested with Python 3.11+ (use 3.11 or 3.12 for broadest pre-built wheel support)
+# On Python 3.13/3.14, pip will attempt to build from source where no wheel exists.
 
 # Web Framework
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
+fastapi>=0.115.5
+uvicorn[standard]>=0.32.1
 
 # Pydantic for data validation
-pydantic==2.10.3
-pydantic-settings==2.7.0
+pydantic>=2.10.3
+pydantic-settings>=2.7.0
 
 # HTTP Client (for LLM API calls in later phases)
-httpx==0.28.1
+httpx>=0.28.1
 
 # WebSockets
-websockets==14.1
+websockets>=14.1
 
 # Environment variables
-python-dotenv==1.0.1
+python-dotenv>=1.0.1
 
 # Database
-sqlalchemy==2.0.36
-aiosqlite==0.20.0
+sqlalchemy>=2.0.36
+aiosqlite>=0.20.0
 
 # Cryptography (for later phases)
-cryptography==44.0.0
+cryptography>=44.0.0
 
 # Dev / Testing
-pytest==8.3.4
-pytest-asyncio==0.24.0
-httpx==0.28.1
+pytest>=8.3.4
+pytest-asyncio>=0.24.0

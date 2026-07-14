@@ -2,8 +2,16 @@
 TrustMesh Backend Configuration
 Reads settings from environment variables / .env file.
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from __future__ import annotations
+
+import json
 from functools import lru_cache
+from typing import Any
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 class Settings(BaseSettings):
@@ -27,8 +35,29 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///./trustmesh.db"
 
-    # CORS
-    allowed_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # CORS — stored as a raw string so pydantic-settings never tries to
+    # JSON-decode it; we normalise to list in the validator below.
+    allowed_origins_raw: str = ",".join(_DEFAULT_ORIGINS)
+
+    @field_validator("allowed_origins_raw", mode="before")
+    @classmethod
+    def _coerce_origins(cls, v: Any) -> str:
+        """Accept JSON array or comma-separated string from env."""
+        if isinstance(v, list):
+            return ",".join(v)
+        s = str(v).strip()
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                return ",".join(parsed)
+            except json.JSONDecodeError:
+                pass
+        return s
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """Return CORS origins as a list."""
+        return [o.strip() for o in self.allowed_origins_raw.split(",") if o.strip()]
 
 
 @lru_cache()
