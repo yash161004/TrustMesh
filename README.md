@@ -87,11 +87,20 @@ TrustMesh/
 
 ---
 
-## 📖 Detailed Phase Guide
+## 📖 Detailed Phase Guides
 
-For a thorough walkthrough of every phase — what's built, how it works, and how all components connect — see:
+Each phase has its own dedicated explanation file:
 
-👉 **[docs/PHASES.md](docs/PHASES.md)**
+| Phase | File | Status |
+|-------|------|--------|
+| **0 — Foundation** | [`docs/phase-0.md`](docs/phase-0.md) | ✅ Done |
+| **1 — Agent Logic** | [`docs/phase-1.md`](docs/phase-1.md) | 🟢 Active |
+| **2 — Trust Engine** | [`docs/phase-2.md`](docs/phase-2.md) | 🔜 Planned |
+| **3 — Cryptographic Ledger** | [`docs/phase-3.md`](docs/phase-3.md) | 🔜 Planned |
+| **4 — WebSocket Live Stream** | [`docs/phase-4.md`](docs/phase-4.md) | 🔜 Planned |
+| **5 — Advanced Analysis** | [`docs/phase-5.md`](docs/phase-5.md) | 🔜 Planned |
+
+Start with the **[overview index](docs/PHASES.md)** for the big picture, then dive into individual phases.
 
 ---
 
