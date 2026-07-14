@@ -56,8 +56,8 @@ function StatCard({ id, label, value, sub, color = "blue", delay = 0 }) {
 
 function PhaseRoadmap() {
   const phases = [
-    { num: 0, name: "Foundation",            status: "active",  desc: "Project scaffolding, models, health-check" },
-    { num: 1, name: "Agent Logic",            status: "pending", desc: "Buyer & Seller LLM agents (Gemini / Groq)" },
+    { num: 0, name: "Foundation",            status: "done",  desc: "Project scaffolding, models, health-check" },
+    { num: 1, name: "Agent Logic",            status: "active", desc: "Buyer & Seller LLM agents (Gemini / Groq)" },
     { num: 2, name: "Trust Engine",           status: "pending", desc: "Manipulation & policy violation detection" },
     { num: 3, name: "Cryptographic Ledger",   status: "pending", desc: "Ed25519 signing, tamper-evident chain" },
     { num: 4, name: "WebSocket Live Stream",  status: "pending", desc: "Real-time dashboard feed" },
@@ -71,9 +71,10 @@ function PhaseRoadmap() {
         {phases.map((p) => (
           <li key={p.num} className="ml-6">
             <span
-              className={`absolute -left-3 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ring-4 ring-[hsl(240,70%,6%)] ${
-                p.status === "active"
+              className={`absolute -left-3 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ring-4 ring-[hsl(240,70%,6%)] $            {p.status === "active"
                   ? "bg-trust-500 text-white"
+                  : p.status === "done"
+                  ? "bg-emerald-500/80 text-white"
                   : "bg-white/10 text-white/40"
               }`}
             >
@@ -84,6 +85,7 @@ function PhaseRoadmap() {
                 {p.name}
               </h3>
               {p.status === "active" && <span className="badge-active">Current</span>}
+              {p.status === "done" && <span className="text-emerald-400 text-xs font-medium">✓ Done</span>}
             </div>
             <p className="text-xs text-white/35">{p.desc}</p>
           </li>
@@ -166,7 +168,7 @@ export default function App() {
             <span className="text-lg font-bold text-white tracking-tight">
               Trust<span className="text-trust-400">Mesh</span>
             </span>
-            <span className="badge-phase ml-1">Phase 0</span>
+            <span className="badge-phase ml-1">Phase {apiData?.phase?.charAt(0) || '1'}</span>
           </div>
           <HealthBadge status={apiStatus} />
         </nav>
@@ -177,18 +179,18 @@ export default function App() {
         <div className="animate-fade-in">
           <div className="inline-flex items-center gap-2 glass rounded-full px-4 py-1.5 mb-6 text-xs text-trust-300 font-medium border border-trust-500/20">
             <span className="h-1.5 w-1.5 rounded-full bg-trust-400 animate-pulse-slow" />
-            Phase 0 Foundation · Scaffold Complete
+            Phase 1 Active · AI Agents Negotiating
           </div>
           <h1 className="text-5xl sm:text-6xl font-extrabold text-white leading-tight mb-4">
-            Verified AI&nbsp;
+            AI&nbsp;
             <span className="bg-gradient-to-r from-trust-400 via-neon-blue to-neon-green bg-clip-text text-transparent">
-              Negotiation
+              Negotiation Agents
             </span>
           </h1>
           <p className="text-lg text-white/55 max-w-2xl mx-auto leading-relaxed mb-8">
-            TrustMesh sits between two LLM agents negotiating B2B deals — detecting
-            manipulation, verifying commitments, and sealing every exchange with
-            a cryptographic signature.
+            Buyer &amp; Seller LLM agents negotiate B2B deals in real time using
+            Gemini or Groq — with trust monitoring, commitment verification,
+            and cryptographic sealing coming in later phases.
           </p>
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <a
@@ -216,7 +218,7 @@ export default function App() {
       {/* ── Stats row ── */}
       <section id="stats" className="relative z-10 max-w-7xl mx-auto px-6 mb-8">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard id="stat-phase"    label="Current Phase" value="0"           sub="Foundation"          color="blue"   delay={0} />
+          <StatCard id="stat-phase"    label="Current Phase" value={apiData?.phase?.charAt(0) || '1'} sub={apiData?.phase?.slice(5) || 'Agent Logic'} color="blue"   delay={0} />
           <StatCard id="stat-agents"   label="LLM Agents"    value="2"           sub="Buyer + Seller"      color="green"  delay={80} />
           <StatCard id="stat-models"   label="AI Backends"   value="2"           sub="Gemini · Groq"       color="purple" delay={160} />
           <StatCard id="stat-trust"    label="Trust Engine"  value="Phase 2"     sub="Coming soon"         color="amber"  delay={240} />
@@ -283,7 +285,7 @@ export default function App() {
       {/* ── Footer ── */}
       <footer id="footer" className="relative z-10 glass border-t border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-12 flex items-center justify-between text-xs text-white/30">
-          <span>TrustMesh © 2026 · Phase 0 Foundation</span>
+          <span>TrustMesh © 2026 · Phase 1 — Agent Logic</span>
           <span>FastAPI · React · Gemini · Groq</span>
         </div>
       </footer>

@@ -78,12 +78,20 @@ TrustMesh/
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| **0** | Foundation — project scaffolding | ✅ **Current** |
-| **1** | Agent Logic — Buyer & Seller LLM agents | 🔜 |
+| **0** | Foundation — project scaffolding | ✅ Done |
+| **1** | Agent Logic — Buyer & Seller LLM agents | 🟢 **Current** |
 | **2** | Trust Engine — manipulation & policy detection | 🔜 |
 | **3** | Cryptographic Ledger — Ed25519 signing & verification | 🔜 |
 | **4** | WebSocket Live Stream — real-time dashboard | 🔜 |
 | **5** | Advanced Analysis — scoring, reports, export | 🔜 |
+
+---
+
+## 📖 Detailed Phase Guide
+
+For a thorough walkthrough of every phase — what's built, how it works, and how all components connect — see:
+
+👉 **[docs/PHASES.md](docs/PHASES.md)**
 
 ---
 
@@ -161,6 +169,8 @@ Copy `backend/.env.example` to `backend/.env` and fill in:
 | `APP_ENV` | No | `development` / `production` |
 | `APP_HOST` | No | Server bind host (default `0.0.0.0`) |
 | `APP_PORT` | No | Server bind port (default `8000`) |
+| `CURRENT_PHASE` | No | Phase label for the health endpoint |
+| `APP_VERSION` | No | Semantic version for the backend |
 | `DATABASE_URL` | No | SQLAlchemy URL (default SQLite) |
 | `ALLOWED_ORIGINS` | No | Comma-separated CORS origins |
 

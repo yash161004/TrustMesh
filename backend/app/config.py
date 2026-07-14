@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "info"
+    current_phase: str = "1 — Agent Logic"
+    app_version: str = "0.2.0"
 
     # AI Provider Keys (required in production; can be empty for Phase 0 scaffold)
     gemini_api_key: str = ""

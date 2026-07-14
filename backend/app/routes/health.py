@@ -6,6 +6,8 @@ GET /health  →  200 with service metadata.
 from datetime import datetime, timezone
 from fastapi import APIRouter
 
+from ..config import get_settings
+
 router = APIRouter()
 
 
@@ -18,10 +20,11 @@ async def health_check() -> dict:
     probes (load balancers, CI pipelines, Kubernetes liveness probes) can
     call it without triggering database or LLM connections.
     """
+    settings = get_settings()
     return {
         "status": "ok",
         "service": "TrustMesh Backend",
-        "phase": "0 — Foundation",
+        "phase": settings.current_phase,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "version": "0.1.0",
+        "version": settings.app_version,
     }
