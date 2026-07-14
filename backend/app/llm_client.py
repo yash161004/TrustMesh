@@ -3,6 +3,9 @@ TrustMesh LLM Client — Phase 1: Agent Logic
 
 Provides a unified interface for calling Gemini and Groq APIs.
 Supports streaming responses for real-time negotiation.
+
+Mock mode is automatically enabled when API keys are empty or
+contain placeholder values (e.g., "your_gemini_api_key_here").
 """
 from __future__ import annotations
 
@@ -13,6 +16,42 @@ from typing import AsyncIterator, Optional
 import httpx
 
 from .config import get_settings
+
+
+# ---------------------------------------------------------------------------
+# Placeholder detection
+# ---------------------------------------------------------------------------
+
+_PLACEHOLDER_PATTERNS = [
+    "your_",
+    "placeholder",
+    "xxxxxxxxx",
+    "sk-your",
+    "enter_your",
+]
+
+
+def _is_placeholder(key: str) -> bool:
+    """Return True if the key looks like a placeholder, not a real key."""
+    lowered = key.lower().strip()
+    for pattern in _PLACEHOLDER_PATTERNS:
+        if pattern in lowered:
+            return True
+    return False
+
+
+def _resolve_api_key(key: str) -> str:
+    """Return empty string for placeholder keys, the key otherwise."""
+    if not key:
+        return ""
+    if _is_placeholder(key):
+        return ""
+    return key
+
+
+# ---------------------------------------------------------------------------
+# Abstract client
+# ---------------------------------------------------------------------------
 
 
 class LLMClient(ABC):
@@ -29,11 +68,17 @@ class LLMClient(ABC):
         ...
 
 
+# ---------------------------------------------------------------------------
+# Gemini client
+# ---------------------------------------------------------------------------
+
+
 class GeminiClient(LLMClient):
     """Google Gemini API client."""
 
     def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
-        self.api_key = api_key
+        resolved_key = _resolve_api_key(api_key)
+        self.api_key = resolved_key
         self.model = model
         self.base_url = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -69,7 +114,10 @@ class GeminiClient(LLMClient):
             async with client.stream(
                 "POST",
                 url,
-                json={"contents": contents, "generationConfig": {"maxOutputTokens": 1024}},
+                json={
+                    "contents": contents,
+                    "generationConfig": {"maxOutputTokens": 1024},
+                },
                 timeout=60.0,
             ) as response:
                 response.raise_for_status()
@@ -91,22 +139,118 @@ class GeminiClient(LLMClient):
         return contents
 
     def _mock_response(self, messages: list[dict]) -> str:
-        """Return a mock response when no API key is configured."""
-        last_msg = messages[-1]["content"] if messages else ""
-        if "offer" in last_msg.lower() or "price" in last_msg.lower():
+        """Return a mock response when no API key is configured.
+
+        Produces realistic multi-turn negotiation with prices that converge
+        toward a deal over several rounds.
+
+        The last message in `messages` is always the **context prompt**
+        (``{"action": "respond_to_negotiation", ...}``), so we extract
+        ``last_price`` from ``context.last_price`` and determine the sender
+        role from the actual offer message at ``messages[-2]``.
+        """
+        # --- Extract context (last message - the action prompt) ---
+        context_msg = messages[-1]["content"] if len(messages) >= 1 else "{}"
+        try:
+            context_data = json.loads(context_msg).get("context", {})
+        except (json.JSONDecodeError, TypeError):
+            context_data = {}
+
+        last_price = float(context_data.get("last_price", 460.0))
+        turn_number = int(context_data.get("turn", 1))
+        role = str(context_data.get("role", "buyer"))
+
+        # --- Extract the actual last offer message for detecting delivery terms ---
+        # The second-to-last message (if any) is the previous agent's offer
+        last_offer_msg = messages[-2]["content"] if len(messages) >= 2 else "{}"
+        try:
+            last_offer = json.loads(last_offer_msg)
+            last_terms = str(last_offer.get("delivery_terms", ""))
+        except (json.JSONDecodeError, TypeError):
+            last_terms = ""
+
+        lower_terms = last_terms.lower()
+
+        # --- Accept / reject triggers ---
+        if turn_number >= 6 and 440 <= last_price <= 480:
+            return json.dumps({
+                "message_type": "ACCEPT",
+                "price": last_price,
+                "quantity": 100,
+                "delivery_terms": (
+                    f"Delivery within 14 days, Net-30, finalised at ₹{last_price}/unit"
+                ),
+                "notes": f"Agreed at ₹{last_price}/unit for 100 chairs. Deal closed.",
+            })
+
+        if turn_number >= 8:
+            return json.dumps({
+                "message_type": "ACCEPT",
+                "price": last_price,
+                "quantity": 100,
+                "delivery_terms": f"Compromised delivery, final at ₹{last_price}/unit",
+                "notes": f"Accepting at ₹{last_price}/unit after extended negotiation.",
+            })
+
+        if turn_number >= 10:
+            return json.dumps({
+                "message_type": "REJECT",
+                "price": 0,
+                "quantity": 0,
+                "delivery_terms": "",
+                "notes": "Unable to reach agreement after maximum negotiation turns.",
+            })
+
+        # --- Seller: responding to buyer's offer ---
+        if role == "seller":
+            increment = max(0.08 - (turn_number * 0.01), 0.02)  # 8% → 2%
+            counter_price = round(last_price * (1 + increment), 2)
+            counter_price = min(counter_price, 520.0)
+
+            if turn_number >= 3:
+                delivery_text = (
+                    f"Delivery within 14 days at ₹{counter_price}/unit "
+                    f"(expedited, +₹25/unit premium waived for 100-unit volume)"
+                )
+            else:
+                delivery_text = (
+                    f"Standard delivery within 21 days, Net-15, "
+                    f"2-year warranty on manufacturing defects"
+                )
+
             return json.dumps({
                 "message_type": "COUNTER_OFFER",
-                "price": 200.00,
+                "price": counter_price,
                 "quantity": 100,
-                "delivery_terms": "Net-30, FOB origin",
-                "notes": "Counter offer based on market analysis"
+                "delivery_terms": delivery_text,
+                "notes": (
+                    f"Counter at ₹{counter_price}/unit. "
+                    f"Standard 21-day delivery included. 10-day expedite available."
+                ),
             })
+
+        # --- Buyer: responding to seller's offer ---
+        decrement = max(0.06 - (turn_number * 0.008), 0.015)  # 6% → 1.5%
+        counter_price = round(last_price * (1 - decrement), 2)
+        counter_price = max(counter_price, 440.0)
+
+        if turn_number >= 4:
+            delivery_text = (
+                f"Delivery within 14 days required, Net-30, "
+                f"at ₹{counter_price}/unit — final delivery requirement"
+            )
+        else:
+            delivery_text = (
+                f"Delivery within 14 days preferred, Net-30, "
+                f"FOB destination, quality inspection on arrival"
+            )
+
         return json.dumps({
-            "message_type": "ACCEPT",
-            "price": 0,
-            "quantity": 0,
-            "delivery_terms": "",
-            "notes": "Accepting previous terms"
+            "message_type": "COUNTER_OFFER",
+            "price": counter_price,
+            "quantity": 100,
+            "delivery_terms": delivery_text,
+            "notes": f"Counter at ₹{counter_price}/unit. Requiring 14-day delivery.",
         })
 
     async def _mock_stream(self, messages: list[dict]) -> AsyncIterator[str]:
@@ -117,11 +261,17 @@ class GeminiClient(LLMClient):
             yield word + " "
 
 
+# ---------------------------------------------------------------------------
+# Groq client
+# ---------------------------------------------------------------------------
+
+
 class GroqClient(LLMClient):
     """Groq API client (OpenAI-compatible)."""
 
     def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
-        self.api_key = api_key
+        resolved_key = _resolve_api_key(api_key)
+        self.api_key = resolved_key
         self.model = model
         self.base_url = "https://api.groq.com/openai/v1"
 
@@ -199,14 +349,14 @@ class GroqClient(LLMClient):
                 "price": 205.00,
                 "quantity": 100,
                 "delivery_terms": "Net-30, FOB destination",
-                "notes": "Competitive counter offer"
+                "notes": "Competitive counter offer",
             })
         return json.dumps({
             "message_type": "ACCEPT",
             "price": 0,
             "quantity": 0,
             "delivery_terms": "",
-            "notes": "Accepting terms"
+            "notes": "Accepting terms",
         })
 
     async def _mock_stream(self, messages: list[dict]) -> AsyncIterator[str]:
@@ -217,9 +367,23 @@ class GroqClient(LLMClient):
             yield word + " "
 
 
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+
 def get_llm_client(provider: str = "gemini") -> LLMClient:
-    """Factory function to get the appropriate LLM client."""
+    """Factory function to get the appropriate LLM client.
+
+    Automatically falls back to mock mode if the API key for the
+    requested provider is empty, missing, or a placeholder value.
+    """
     settings = get_settings()
     if provider.lower() == "groq":
-        return GroqClient(api_key=settings.groq_api_key)
-    return GeminiClient(api_key=settings.gemini_api_key)
+        key = _resolve_api_key(settings.groq_api_key)
+        if not key:
+            return GeminiClient(api_key="")  # Falls through to mock
+        return GroqClient(api_key=key)
+
+    key = _resolve_api_key(settings.gemini_api_key)
+    return GeminiClient(api_key=key)
