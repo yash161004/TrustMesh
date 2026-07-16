@@ -1,21 +1,22 @@
 """
-TrustMesh Session Routes — Phase 1: Agent Logic + Phase 2: Trust Engine + Crypto Ledger
+TrustMesh Session Routes — Phase 1: Agent Logic + Phase 2: Trust Engine + Crypto Ledger + Phase 4: WebSocket
 
 API endpoints for managing negotiation sessions between buyer and seller agents,
-including trust evaluation (Phase 2) and the cryptographic ledger (Phase 3).
+including trust evaluation (Phase 2), the cryptographic ledger (Phase 3),
+and live WebSocket streaming (Phase 4).
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from ..crypto.ledger import verify_chain
 from ..db import load_ledger_entries
 from ..models import NegotiationMessage, NegotiationScenario, NegotiationSession, NegotiationSessionStatus, DEFAULT_SCENARIO
-from ..session_manager import session_manager
+from ..session_manager import session_manager, ws_manager
 from ..trust.engine import trust_engine
 from ..trust.models import TrustReport
 
@@ -236,3 +237,42 @@ async def get_ledger(session_id: str):
         chain_valid=chain_valid,
         broken_at=broken_at,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4: WebSocket live stream
+# --------------------------------------------------------------------------- #
+
+
+@router.websocket("/{session_id}/ws")
+async def session_websocket(websocket: WebSocket, session_id: str):
+    """Live WebSocket stream for a negotiation session.
+
+    On connect: sends full message history, then live updates as new
+    messages are persisted.  Handles disconnects gracefully.
+    """
+    try:
+        await session_manager.get_session(session_id)
+    except ValueError:
+        await websocket.close(code=4004, reason="Session not found")
+        return
+
+    await ws_manager.connect(session_id, websocket)
+    try:
+        # Send existing message history on connect
+        messages = await session_manager.get_messages(session_id)
+        await websocket.send_json({
+            "type": "history",
+            "messages": [m.model_dump(mode="json") for m in messages],
+        })
+
+        # Keep connection alive; client may send pings or close
+        while True:
+            try:
+                await websocket.receive_text()
+            except WebSocketDisconnect:
+                break
+    except Exception:
+        pass
+    finally:
+        ws_manager.disconnect(session_id, websocket)

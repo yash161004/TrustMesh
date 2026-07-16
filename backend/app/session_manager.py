@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
+from fastapi import WebSocket
+
 from .agents.buyer import BuyerAgent
 from .agents.seller import SellerAgent
 from .config import get_settings
@@ -43,6 +45,44 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket connection manager (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+class ConnectionManager:
+    """Tracks active WebSocket connections per session and broadcasts updates."""
+
+    def __init__(self):
+        self._connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, session_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self._connections.setdefault(session_id, []).append(websocket)
+        logger.info("WS connected: session=%s (total=%d)", session_id, len(self._connections[session_id]))
+
+    def disconnect(self, session_id: str, websocket: WebSocket) -> None:
+        conns = self._connections.get(session_id, [])
+        if websocket in conns:
+            conns.remove(websocket)
+            logger.info("WS disconnected: session=%s (remaining=%d)", session_id, len(conns))
+        if not conns:
+            self._connections.pop(session_id, None)
+
+    async def broadcast(self, session_id: str, payload: dict) -> None:
+        dead: list[WebSocket] = []
+        for ws in self._connections.get(session_id, []):
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(session_id, ws)
+
+
+ws_manager = ConnectionManager()
 
 
 def _scenario_to_flat_context(s: NegotiationScenario) -> dict:
@@ -494,6 +534,15 @@ class SessionManager:
                 await save_ledger_entry(**entry)
             except Exception as e:
                 logger.warning("Failed to append ledger entry: %s", e)
+
+        # Broadcast to connected WebSocket clients (Phase 4)
+        try:
+            await ws_manager.broadcast(session_id, {
+                "type": "new_message",
+                "message": msg.model_dump(mode="json"),
+            })
+        except Exception as e:
+            logger.warning("Failed to broadcast message: %s", e)
 
     def _get_session(self, session_id: str) -> NegotiationSession:
         if session_id not in self.sessions:

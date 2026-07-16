@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -52,7 +52,7 @@ function PhaseRoadmap() {
     { num: 1, name: "Agent Logic",            status: "active", desc: "Buyer & Seller LLM agents (Gemini / Groq)" },
     { num: 2, name: "Trust Engine",           status: "pending", desc: "Manipulation & policy violation detection" },
     { num: 3, name: "Cryptographic Ledger",   status: "pending", desc: "Ed25519 signing, tamper-evident chain" },
-    { num: 4, name: "WebSocket Live Stream",  status: "pending", desc: "Real-time dashboard feed" },
+    { num: 4, name: "WebSocket Live Stream",  status: "active", desc: "Real-time dashboard feed" },
     { num: 5, name: "Advanced Analysis",      status: "pending", desc: "Scoring, reports, export" },
   ];
 
@@ -138,6 +138,44 @@ export default function App() {
   const [sessions, setSessions] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [chartData, setChartData] = useState([]);
+  const wsRef = useRef(null);
+  const chartDataRef = useRef([]);
+
+  // Helper: messages → chart data (shared by WS and REST)
+  const messagesToChartData = useCallback((messages) => {
+    const turns = {};
+    messages.forEach(msg => {
+      if (!turns[msg.turn_number]) turns[msg.turn_number] = {};
+      if (msg.sender.includes("buyer")) turns[msg.turn_number].offer = msg.price;
+      if (msg.sender.includes("seller")) turns[msg.turn_number].counter = msg.price;
+    });
+    const formatted = [];
+    let currentOffer = null;
+    let currentCounter = null;
+    Object.keys(turns).sort((a, b) => Number(a) - Number(b)).forEach(tNum => {
+      if (turns[tNum].offer !== undefined) currentOffer = turns[tNum].offer;
+      if (turns[tNum].counter !== undefined) currentCounter = turns[tNum].counter;
+      formatted.push({ turn: Number(tNum), offer: currentOffer, counter: currentCounter });
+    });
+    return formatted;
+  }, []);
+
+  // Helper: apply a single new message to existing chart data
+  const applyNewMessage = useCallback((msg) => {
+    const data = [...chartDataRef.current];
+    const existing = data.find(d => d.turn === msg.turn_number);
+    if (existing) {
+      if (msg.sender.includes("buyer")) existing.offer = msg.price;
+      if (msg.sender.includes("seller")) existing.counter = msg.price;
+    } else {
+      const point = { turn: msg.turn_number, offer: null, counter: null };
+      if (msg.sender.includes("buyer")) point.offer = msg.price;
+      if (msg.sender.includes("seller")) point.counter = msg.price;
+      data.push(point);
+    }
+    chartDataRef.current = data;
+    setChartData([...data]);
+  }, []);
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/health`)
@@ -157,30 +195,73 @@ export default function App() {
       .catch(e => console.error("Failed to fetch sessions", e));
   }, []);
 
+  // WebSocket connection with REST fallback (Phase 4)
   useEffect(() => {
     if (!selectedSessionId) return;
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/sessions/${selectedSessionId}/messages`)
-      .then(r => r.json())
-      .then(messages => {
-        const formatted = [];
-        let currentOffer = null;
-        let currentCounter = null;
-        const turns = {};
-        messages.forEach(msg => {
-          if (!turns[msg.turn_number]) turns[msg.turn_number] = {};
-          if (msg.sender.includes("buyer")) turns[msg.turn_number].offer = msg.price;
-          if (msg.sender.includes("seller")) turns[msg.turn_number].counter = msg.price;
-        });
 
-        Object.keys(turns).sort((a,b) => Number(a) - Number(b)).forEach(tNum => {
-          if (turns[tNum].offer !== undefined) currentOffer = turns[tNum].offer;
-          if (turns[tNum].counter !== undefined) currentCounter = turns[tNum].counter;
-          formatted.push({ turn: Number(tNum), offer: currentOffer, counter: currentCounter });
-        });
-        setChartData(formatted);
-      })
-      .catch(e => console.error("Failed to fetch messages", e));
-  }, [selectedSessionId]);
+    // Clean up previous WS
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const wsUrl = apiBase.replace(/^http/, "ws") + `/api/v1/sessions/${selectedSessionId}/ws`;
+
+    let wsFailed = false;
+
+    const connectWs = () => {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("[WS] Connected to session", selectedSessionId);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "history") {
+            chartDataRef.current = messagesToChartData(data.messages);
+            setChartData([...chartDataRef.current]);
+          } else if (data.type === "new_message") {
+            applyNewMessage(data.message);
+          }
+        } catch (e) {
+          console.error("[WS] Failed to parse message:", e);
+        }
+      };
+
+      ws.onerror = () => {
+        console.warn("[WS] Connection failed — falling back to REST");
+        wsFailed = true;
+        ws.close();
+      };
+
+      ws.onclose = () => {
+        if (wsFailed && wsRef.current === ws) {
+          // Fall back to REST fetch
+          fetch(`${apiBase}/api/v1/sessions/${selectedSessionId}/messages`)
+            .then(r => r.json())
+            .then(messages => {
+              chartDataRef.current = messagesToChartData(messages);
+              setChartData([...chartDataRef.current]);
+            })
+            .catch(e => console.error("REST fallback failed:", e));
+        }
+        wsRef.current = null;
+      };
+    };
+
+    connectWs();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [selectedSessionId, messagesToChartData, applyNewMessage]);
 
   return (
     <div className="min-h-dvh bg-hero-gradient">
