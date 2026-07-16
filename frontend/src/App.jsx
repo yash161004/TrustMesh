@@ -3,15 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
-// ── Placeholder chart data (Phase 0 scaffold) ────────────────────────────────
-const mockNegotiationData = [
-  { turn: 1, offer: 220, counter: null,  trust: 95 },
-  { turn: 2, offer: 220, counter: 195,   trust: 88 },
-  { turn: 3, offer: 210, counter: 195,   trust: 91 },
-  { turn: 4, offer: 210, counter: 200,   trust: 85 },
-  { turn: 5, offer: 205, counter: 200,   trust: 92 },
-  { turn: 6, offer: 202, counter: 202,   trust: 98 },
-];
+// (Mock data removed for Phase A)
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -95,15 +87,15 @@ function PhaseRoadmap() {
   );
 }
 
-function NegotiationChart() {
+function NegotiationChart({ data }) {
   return (
     <div id="negotiation-chart" className="glass rounded-2xl p-6 border-glow">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-semibold text-white/90">Price Negotiation (Demo)</h2>
-        <span className="badge-pending">Placeholder — Phase 1</span>
+        <h2 className="text-lg font-semibold text-white/90">Price Negotiation (Real-time)</h2>
+        <span className="badge-active">Live Data</span>
       </div>
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={mockNegotiationData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+        <AreaChart data={data || []} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="offerGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#3b5bff" stopOpacity={0.4} />
@@ -143,13 +135,52 @@ function HealthBadge({ status }) {
 export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [apiData,   setApiData]   = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [chartData, setChartData] = useState([]);
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/health`)
       .then((r) => r.json())
       .then((d) => { setApiData(d); setApiStatus("ok"); })
       .catch(() => setApiStatus("error"));
+      
+    // Fetch sessions
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/sessions`)
+      .then(r => r.json())
+      .then(data => {
+        setSessions(data);
+        if (data.length > 0) {
+          setSelectedSessionId(data[0].session_id);
+        }
+      })
+      .catch(e => console.error("Failed to fetch sessions", e));
   }, []);
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/sessions/${selectedSessionId}/messages`)
+      .then(r => r.json())
+      .then(messages => {
+        const formatted = [];
+        let currentOffer = null;
+        let currentCounter = null;
+        const turns = {};
+        messages.forEach(msg => {
+          if (!turns[msg.turn_number]) turns[msg.turn_number] = {};
+          if (msg.sender.includes("buyer")) turns[msg.turn_number].offer = msg.price;
+          if (msg.sender.includes("seller")) turns[msg.turn_number].counter = msg.price;
+        });
+
+        Object.keys(turns).sort((a,b) => Number(a) - Number(b)).forEach(tNum => {
+          if (turns[tNum].offer !== undefined) currentOffer = turns[tNum].offer;
+          if (turns[tNum].counter !== undefined) currentCounter = turns[tNum].counter;
+          formatted.push({ turn: Number(tNum), offer: currentOffer, counter: currentCounter });
+        });
+        setChartData(formatted);
+      })
+      .catch(e => console.error("Failed to fetch messages", e));
+  }, [selectedSessionId]);
 
   return (
     <div className="min-h-dvh bg-hero-gradient">
@@ -249,7 +280,7 @@ export default function App() {
       <section id="main-grid" className="relative z-10 max-w-7xl mx-auto px-6 mb-8">
         <div className="grid md:grid-cols-3 gap-6">
           <div className="md:col-span-2">
-            <NegotiationChart />
+            <NegotiationChart data={chartData} />
           </div>
           <div>
             <PhaseRoadmap />
