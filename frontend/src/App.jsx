@@ -145,7 +145,7 @@ export default function App() {
   const [apiData,   setApiData]   = useState(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/health")
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/health`)
       .then((r) => r.json())
       .then((d) => { setApiData(d); setApiStatus("ok"); })
       .catch(() => setApiStatus("error"));
@@ -195,7 +195,7 @@ export default function App() {
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <a
               id="btn-docs"
-              href="http://localhost:8000/docs"
+              href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/docs`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-trust-500 hover:bg-trust-600 text-white text-sm font-semibold transition-all duration-200 shadow-glow-blue hover:shadow-glow-blue hover:scale-[1.03]"
@@ -204,7 +204,7 @@ export default function App() {
             </a>
             <a
               id="btn-health"
-              href="http://localhost:8000/api/v1/health"
+              href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/health`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl glass border border-white/10 hover:border-trust-500/40 text-white/80 hover:text-white text-sm font-semibold transition-all duration-200"

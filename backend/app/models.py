@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -183,3 +183,92 @@ class NegotiationSession(BaseModel):
         "seller_agent_id": "seller-agent-001",
         "status": "PENDING",
     }}}
+
+
+# ---------------------------------------------------------------------------
+# Negotiation Scenario — dynamic input data (Phase 1 refactor)
+# ---------------------------------------------------------------------------
+
+class NegotiationScenario(BaseModel):
+    """
+    Describes the product, pricing, and delivery parameters for a
+    single negotiation session.  All hardcoded values from buyer.py /
+    seller.py have been moved here so that agents are driven purely
+    by data.
+
+    Used by:
+    - Phase 1 agents for constructing dynamic system prompts and
+      initial offers / acceptance logic.
+    - Phase 2 trust engine to know the declared policies to check
+      against (e.g., "buyer budget cap is ₹500 — did buyer exceed it?").
+    - Phase 5 benchmarking to run many different adversarial scenarios
+      without code changes.
+    """
+
+    product_name: str = Field(..., description="Product or service being negotiated.")
+    quantity: int = Field(..., ge=1, description="Number of units under negotiation.")
+    currency: str = Field(default="INR", min_length=1, max_length=10, description="Currency code (INR, USD, EUR, …).")
+    market_reference_price: float = Field(..., gt=0, description="Prevailing market price per unit.")
+    buyer_budget_cap: float = Field(..., gt=0, description="Buyer's absolute maximum per unit (secret).")
+    buyer_target_price: float = Field(..., gt=0, description="Buyer's ideal / target price per unit (secret).")
+    seller_floor_price: float = Field(..., gt=0, description="Seller's absolute minimum per unit (secret).")
+    seller_asking_price: float = Field(..., gt=0, description="Seller's initial asking price per unit.")
+    delivery_preference_days: int = Field(..., ge=1, description="Buyer's preferred delivery window (days).")
+    standard_delivery_days: int = Field(..., ge=1, description="Seller's standard default delivery window (days).")
+    expedited_delivery_days: int | None = Field(
+        default=None, ge=1,
+        description="Seller's expedited delivery window (days); None = not available.",
+    )
+    expedited_premium_per_unit: float | None = Field(
+        default=None, ge=0,
+        description="Premium per unit for expedited delivery; None = not available.",
+    )
+
+    @model_validator(mode="after")
+    def _check_price_sanity(self):
+        """Raise error if the buyer and seller price ranges don't overlap."""
+        if self.buyer_budget_cap < self.seller_floor_price:
+            raise ValueError(
+                f"Scenario price gap: buyer budget cap ({self.buyer_budget_cap:.2f}) < "
+                f"seller floor ({self.seller_floor_price:.2f}) — a deal is impossible."
+            )
+        return self
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "product_name": "Office chairs",
+                "quantity": 100,
+                "currency": "INR",
+                "market_reference_price": 480.0,
+                "buyer_budget_cap": 500.0,
+                "buyer_target_price": 440.0,
+                "seller_floor_price": 420.0,
+                "seller_asking_price": 550.0,
+                "delivery_preference_days": 14,
+                "standard_delivery_days": 21,
+                "expedited_delivery_days": 10,
+                "expedited_premium_per_unit": 25.0,
+            }
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Default scenario (original office-chairs setup)
+# ---------------------------------------------------------------------------
+
+DEFAULT_SCENARIO = NegotiationScenario(
+    product_name="Office chairs",
+    quantity=100,
+    currency="INR",
+    market_reference_price=480.0,
+    buyer_budget_cap=500.0,
+    buyer_target_price=440.0,
+    seller_floor_price=420.0,
+    seller_asking_price=550.0,
+    delivery_preference_days=14,
+    standard_delivery_days=21,
+    expedited_delivery_days=10,
+    expedited_premium_per_unit=25.0,
+)
