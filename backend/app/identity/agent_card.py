@@ -119,8 +119,16 @@ def verify_agent_card(card_path: str | Path) -> bool:
         return False
 
 
-def generate_agent_card(role: str, agent_id: str | None = None) -> tuple[AgentCard, str]:
+def generate_agent_card(
+    role: str,
+    agent_id: str | None = None,
+    display_name: str | None = None,
+) -> tuple[AgentCard, str]:
     """Factory: build, sign, and persist an AgentCard for *role*.
+
+    When *agent_id* is provided that value is used as the card's identity;
+    otherwise a new UUID is generated.  When *display_name* is provided
+    it overrides the role-based default name.
 
     The card is returned alongside its base64-encoded signature so the
     caller can inspect or wrap it further.
@@ -131,9 +139,9 @@ def generate_agent_card(role: str, agent_id: str | None = None) -> tuple[AgentCa
     role_label = role.replace("_", " ").title()
     capabilities = _default_capabilities(role)
 
-    card_kwargs = {
+    card_kwargs: dict[str, Any] = {
         "role": role,
-        "display_name": f"{role_label} Agent",
+        "display_name": display_name or f"{role_label} Agent",
         "capabilities": capabilities,
         "public_key": public_key_b64,
     }
