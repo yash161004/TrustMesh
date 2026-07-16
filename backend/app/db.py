@@ -88,8 +88,27 @@ class MessageRecord(Base):
     timestamp = Column(DateTime(timezone=True), nullable=False)
     turn_number = Column(Integer, nullable=False)
     notes = Column(Text, nullable=True)
+    signer_public_key = Column(Text, nullable=True)
 
     session = relationship("SessionRecord", back_populates="messages")
+
+
+class LedgerEntryRecord(Base):
+    """Append-only hash-chained ledger for signed messages."""
+
+    __tablename__ = "ledger_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(
+        String(36), ForeignKey("negotiation_sessions.id"), nullable=False
+    )
+    sequence = Column(Integer, nullable=False)
+    message_json = Column(Text, nullable=False)
+    signature = Column(Text, nullable=False)
+    signer_public_key = Column(Text, nullable=False)
+    prev_hash = Column(String(64), nullable=False)
+    entry_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +160,18 @@ async def init_db() -> None:
                 text("ALTER TABLE negotiation_sessions ADD COLUMN scenario_json TEXT")
             )
             logger.info("Added scenario_json column to negotiation_sessions.")
+
+    # Migration: add signer_public_key column if the table already exists without it
+    async with _async_engine.begin() as conn:
+        result = await conn.execute(
+            text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_messages') WHERE name='signer_public_key'")
+        )
+        row = result.one()
+        if row.cnt == 0:
+            await conn.execute(
+                text("ALTER TABLE negotiation_messages ADD COLUMN signer_public_key TEXT")
+            )
+            logger.info("Added signer_public_key column to negotiation_messages.")
 
     _async_session_factory = async_sessionmaker(
         _async_engine, class_=AsyncSession, expire_on_commit=False
@@ -220,6 +251,7 @@ async def save_message(
     timestamp: datetime,
     turn_number: int,
     notes: Optional[str] = None,
+    signer_public_key: Optional[str] = None,
 ) -> int:
     """Insert a message record and return its auto-incremented id."""
     factory = get_session_factory()
@@ -234,6 +266,7 @@ async def save_message(
             timestamp=timestamp,
             turn_number=turn_number,
             notes=notes,
+            signer_public_key=signer_public_key,
         )
         db.add(record)
         await db.commit()
@@ -338,4 +371,77 @@ def _message_record_to_dict(record: MessageRecord) -> dict:
         "turn_number": record.turn_number,
         "notes": record.notes,
         "session_id": record.session_id,
+        "signer_public_key": record.signer_public_key,
     }
+
+
+# ---------------------------------------------------------------------------
+# Ledger CRUD
+# ---------------------------------------------------------------------------
+
+
+async def save_ledger_entry(
+    session_id: str,
+    sequence: int,
+    message_json: str,
+    signature: str,
+    signer_public_key: str,
+    prev_hash: str,
+    entry_hash: str,
+    created_at: datetime,
+) -> None:
+    """Append a ledger entry to the database."""
+    factory = get_session_factory()
+    async with factory() as db:
+        record = LedgerEntryRecord(
+            session_id=session_id,
+            sequence=sequence,
+            message_json=message_json,
+            signature=signature,
+            signer_public_key=signer_public_key,
+            prev_hash=prev_hash,
+            entry_hash=entry_hash,
+            created_at=created_at,
+        )
+        db.add(record)
+        await db.commit()
+
+
+async def load_ledger_entries(session_id: str) -> list[dict]:
+    """Load all ledger entries for a session, ordered by sequence."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(LedgerEntryRecord)
+            .where(LedgerEntryRecord.session_id == session_id)
+            .order_by(LedgerEntryRecord.sequence)
+        )
+        records = result.scalars().all()
+        return [
+            {
+                "id": r.id,
+                "session_id": r.session_id,
+                "sequence": r.sequence,
+                "message_json": r.message_json,
+                "signature": r.signature,
+                "signer_public_key": r.signer_public_key,
+                "prev_hash": r.prev_hash,
+                "entry_hash": r.entry_hash,
+                "created_at": r.created_at,
+            }
+            for r in records
+        ]
+
+
+async def get_ledger_sequence_count(session_id: str) -> int:
+    """Return the current sequence count for a session's ledger."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(LedgerEntryRecord)
+            .where(LedgerEntryRecord.session_id == session_id)
+            .order_by(LedgerEntryRecord.sequence.desc())
+            .limit(1)
+        )
+        record = result.scalar_one_or_none()
+        return record.sequence if record else 0

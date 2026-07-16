@@ -10,6 +10,7 @@ After a server restart, sessions are loaded on first access.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -21,20 +22,51 @@ from .config import get_settings
 from .db import (
     init_db,
     load_all_sessions,
+    load_ledger_entries,
     load_session,
+    get_ledger_sequence_count,
+    save_ledger_entry,
     save_message,
     save_session,
     update_session_status,
 )
+from .crypto.signing import get_public_key_b64, sign_message
+from .crypto.ledger import _GENESIS_HASH, build_entry
 from .models import (
     AgentRole,
+    DEFAULT_SCENARIO,
     MessageType,
     NegotiationMessage,
+    NegotiationScenario,
     NegotiationSession,
     NegotiationSessionStatus,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _scenario_to_flat_context(s: NegotiationScenario) -> dict:
+    """Flatten a NegotiationScenario into the context dict so that
+    downstream consumers (the mock LLM, the agent's `_build_messages`)
+    can access all scenario fields via the context."""
+    return {
+        "scenario": s.model_dump(),
+        "scenario_product": s.product_name,
+        "scenario_quantity": s.quantity,
+        "scenario_currency": s.currency,
+        "scenario_market_ref": s.market_reference_price,
+        "scenario_buyer_cap": s.buyer_budget_cap,
+        "scenario_buyer_target": s.buyer_target_price,
+        "scenario_seller_floor": s.seller_floor_price,
+        "scenario_seller_ask": s.seller_asking_price,
+        "scenario_delivery_days": s.delivery_preference_days,
+        "scenario_standard_delivery": s.standard_delivery_days,
+        "scenario_expedited_days": s.expedited_delivery_days,
+        "scenario_expedited_premium": s.expedited_premium_per_unit,
+        "starting_price": s.seller_asking_price,
+        "quantity": s.quantity,
+        "product": s.product_name,
+    }
 
 
 class SessionManager:
@@ -53,6 +85,7 @@ class SessionManager:
         self.sessions: dict[str, NegotiationSession] = {}
         self.agents: dict[str, dict[AgentRole, BuyerAgent | SellerAgent]] = {}
         self.contexts: dict[str, dict] = {}
+        self.scenarios: dict[str, NegotiationScenario] = {}
         self.session_locks: dict[str, asyncio.Lock] = {}
         self._lock = asyncio.Lock()
         self._initialised = False  # Whether we've loaded from DB
@@ -71,15 +104,52 @@ class SessionManager:
                     session_id = s["session_id"]
                     self.sessions[session_id] = self._dict_to_session(s)
                     self.session_locks[session_id] = asyncio.Lock()
-                    self.contexts[session_id] = {
-                        "starting_price": 500.0,
-                        "quantity": 100,
-                        "product": "Office chairs",
-                    }
+                    # Restore scenario from DB
+                    scenario = self._extract_scenario(s)
+                    self.scenarios[session_id] = scenario
+                    self.contexts[session_id] = _scenario_to_flat_context(scenario)
+                    # Recreate agents
+                    self.agents[session_id] = self._create_agent_pair(
+                        s.get("buyer_agent_id", "buyer-agent-001"),
+                        s.get("seller_agent_id", "seller-agent-001"),
+                        provider="mock",
+                        scenario=scenario,
+                    )
                 logger.info("Loaded %d session(s) from database.", len(db_sessions))
             except Exception as e:
                 logger.warning("Could not load sessions from DB (first run?): %s", e)
             self._initialised = True
+
+    def _create_agent_pair(
+        self,
+        buyer_agent_id: str,
+        seller_agent_id: str,
+        provider: str,
+        scenario: NegotiationScenario,
+    ) -> dict[AgentRole, BuyerAgent | SellerAgent]:
+        buyer = BuyerAgent(
+            agent_id=buyer_agent_id,
+            provider=provider,
+            scenario=scenario,
+        )
+        seller = SellerAgent(
+            agent_id=seller_agent_id,
+            provider=provider,
+            scenario=scenario,
+        )
+        return {AgentRole.BUYER: buyer, AgentRole.SELLER: seller}
+
+    @staticmethod
+    def _extract_scenario(s: dict) -> NegotiationScenario:
+        """Extract scenario from DB dict, falling back to DEFAULT_SCENARIO."""
+        scenario_json = s.get("scenario_json")
+        if scenario_json:
+            try:
+                data = json.loads(scenario_json)
+                return NegotiationScenario(**data)
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning("Could not parse scenario_json for session %s: %s", s.get("session_id"), e)
+        return DEFAULT_SCENARIO
 
     async def create_session(
         self,
@@ -87,8 +157,12 @@ class SessionManager:
         seller_agent_id: str = "seller-agent-001",
         initial_context: Optional[dict] = None,
         provider: str = "gemini",
+        scenario: Optional[NegotiationScenario] = None,
     ) -> NegotiationSession:
         """Create a new negotiation session with buyer and seller agents.
+
+        Accepts an optional NegotiationScenario.  Falls back to DEFAULT_SCENARIO
+        if none is provided.
 
         Persists the session to SQLite immediately.
         """
@@ -106,8 +180,11 @@ class SessionManager:
             provider = "mock"
             logger.info("No valid Groq API key — forcing mock mode")
 
-        buyer = BuyerAgent(agent_id=buyer_agent_id, provider=provider)
-        seller = SellerAgent(agent_id=seller_agent_id, provider=provider)
+        scenario = scenario or DEFAULT_SCENARIO
+
+        agents = self._create_agent_pair(
+            buyer_agent_id, seller_agent_id, provider, scenario
+        )
 
         session = NegotiationSession(
             session_id=session_id,
@@ -124,24 +201,19 @@ class SessionManager:
             seller_agent_id=seller_agent_id,
             status=session.status.value,
             created_at=session.created_at,
+            scenario_json=scenario.model_dump_json(),
         )
 
         async with self._lock:
             self.sessions[session_id] = session
-            self.agents[session_id] = {
-                AgentRole.BUYER: buyer,
-                AgentRole.SELLER: seller,
-            }
-            self.contexts[session_id] = initial_context or {
-                "starting_price": 500.0,
-                "quantity": 100,
-                "product": "Office chairs",
-            }
+            self.agents[session_id] = agents
+            self.scenarios[session_id] = scenario
+            self.contexts[session_id] = _scenario_to_flat_context(scenario)
             self.session_locks[session_id] = asyncio.Lock()
 
         logger.info(
-            "Created session %s with provider=%s (buyer=%s, seller=%s)",
-            session_id, provider, buyer_agent_id, seller_agent_id,
+            "Created session %s with provider=%s, scenario=%s (buyer=%s, seller=%s)",
+            session_id, provider, scenario.product_name, buyer_agent_id, seller_agent_id,
         )
         return session
 
@@ -158,7 +230,7 @@ class SessionManager:
 
         initial_context = context or self.contexts.get(
             session_id,
-            {"starting_price": 500.0, "quantity": 100, "product": "Office chairs"},
+            _scenario_to_flat_context(self.scenarios.get(session_id, DEFAULT_SCENARIO)),
         )
 
         initial_offer = buyer.create_initial_offer(initial_context)
@@ -172,8 +244,10 @@ class SessionManager:
         )
 
         logger.info(
-            "Session %s started. %s initial offer: ₹%.2f/unit, delivery: %s",
-            session_id, buyer.agent_id, initial_offer.price, initial_offer.delivery_terms,
+            "Session %s started. %s initial offer: %s%.2f/unit, delivery: %s",
+            session_id, buyer.agent_id,
+            self.scenarios.get(session_id, DEFAULT_SCENARIO).currency,
+            initial_offer.price, initial_offer.delivery_terms,
         )
         return initial_offer
 
@@ -200,6 +274,7 @@ class SessionManager:
         async with session_lock:
             agents = self._get_agents(session_id)
             stored_context = self.contexts.get(session_id, {})
+            scenario = self.scenarios.get(session_id, DEFAULT_SCENARIO)
 
             if session.status == NegotiationSessionStatus.PENDING:
                 await self.start_session(session_id, context)
@@ -227,7 +302,7 @@ class SessionManager:
                     "last_price": (
                         last_message.price
                         if last_message
-                        else stored_context.get("starting_price", 500.0)
+                        else stored_context.get("starting_price", scenario.seller_asking_price)
                     ),
                     "turn": len(session.messages) + 1,
                     "role": role,
@@ -243,11 +318,12 @@ class SessionManager:
                     await self._persist_message(session_id, response)
 
                     logger.info(
-                        "Session %s Turn %d: %s -> %s @ ₹%.2f/unit | %s",
+                        "Session %s Turn %d: %s -> %s @ %s%.2f/unit | %s",
                         session_id,
                         turn_count,
                         role,
                         response.message_type.value,
+                        scenario.currency,
                         response.price,
                         response.delivery_terms,
                     )
@@ -266,8 +342,8 @@ class SessionManager:
                             outcome=outcome,
                         )
                         logger.info(
-                            "Session %s completed: %s at ₹%.2f/unit",
-                            session_id, outcome, final_price or 0,
+                            "Session %s completed: %s at %s%.2f/unit",
+                            session_id, outcome, scenario.currency, final_price or 0,
                         )
                         break
 
@@ -306,12 +382,18 @@ class SessionManager:
         if db_session is None:
             raise ValueError(f"Session {session_id} not found")
         session = self._dict_to_session(db_session)
+        scenario = self._extract_scenario(db_session)
         async with self._lock:
             self.sessions[session_id] = session
+            self.scenarios[session_id] = scenario
             self.session_locks.setdefault(session_id, asyncio.Lock())
-            self.contexts.setdefault(
-                session_id,
-                {"starting_price": 500.0, "quantity": 100, "product": "Office chairs"},
+            self.contexts[session_id] = _scenario_to_flat_context(scenario)
+            # Recreate agents from DB
+            self.agents[session_id] = self._create_agent_pair(
+                session.buyer_agent_id,
+                session.seller_agent_id,
+                provider="mock",
+                scenario=scenario,
             )
         return session
 
@@ -326,9 +408,12 @@ class SessionManager:
                 result.append(self.sessions[sid])
             else:
                 session = self._dict_to_session(s)
+                scenario = self._extract_scenario(s)
                 async with self._lock:
                     self.sessions[sid] = session
+                    self.scenarios[sid] = scenario
                     self.session_locks.setdefault(sid, asyncio.Lock())
+                    self.contexts[sid] = _scenario_to_flat_context(scenario)
                 result.append(session)
         return result
 
@@ -352,7 +437,28 @@ class SessionManager:
     # ------------------------------------------------------------------
 
     async def _persist_message(self, session_id: str, msg: NegotiationMessage) -> None:
-        """Write a single message to SQLite."""
+        """Write a single message to SQLite, sign it, and append to the ledger."""
+        # Determine agent role from sender
+        session = self.sessions.get(session_id)
+        role = None
+        if session:
+            if msg.sender == session.buyer_agent_id:
+                role = "buyer"
+            elif msg.sender == session.seller_agent_id:
+                role = "seller"
+
+        # Sign the message if we have a role key
+        signature_b64 = None
+        public_key_b64 = None
+        if role:
+            try:
+                msg_dict = msg.model_dump(mode="json")
+                signature_b64, public_key_b64 = sign_message(msg_dict, role)
+                msg.signature = signature_b64
+                msg.signer_public_key = public_key_b64
+            except Exception as e:
+                logger.warning("Failed to sign message: %s", e)
+
         await save_message(
             session_id=session_id,
             message_type=msg.message_type.value,
@@ -363,7 +469,31 @@ class SessionManager:
             timestamp=msg.timestamp,
             turn_number=msg.turn_number,
             notes=msg.notes,
+            signer_public_key=public_key_b64,
         )
+
+        # Append to hash-chained ledger
+        if signature_b64 and public_key_b64:
+            try:
+                seq = await get_ledger_sequence_count(session_id)
+                prev_hash = _GENESIS_HASH
+                if seq > 0:
+                    entries = await load_ledger_entries(session_id)
+                    if entries:
+                        prev_hash = entries[-1]["entry_hash"]
+
+                entry = build_entry(
+                    message_dict=msg.model_dump(mode="json"),
+                    signature=signature_b64,
+                    signer_public_key=public_key_b64,
+                    prev_hash=prev_hash,
+                    sequence=seq + 1,
+                    created_at=msg.timestamp,
+                    session_id=session_id,
+                )
+                await save_ledger_entry(**entry)
+            except Exception as e:
+                logger.warning("Failed to append ledger entry: %s", e)
 
     def _get_session(self, session_id: str) -> NegotiationSession:
         if session_id not in self.sessions:
@@ -396,6 +526,7 @@ class SessionManager:
                     turn_number=m["turn_number"],
                     notes=m.get("notes"),
                     session_id=m.get("session_id"),
+                    signer_public_key=m.get("signer_public_key"),
                 )
                 for m in d.get("messages", [])
             ],
@@ -414,6 +545,7 @@ class SessionManager:
             turn_number=d["turn_number"],
             notes=d.get("notes"),
             session_id=d.get("session_id"),
+            signer_public_key=d.get("signer_public_key"),
         )
 
 

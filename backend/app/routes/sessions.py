@@ -1,7 +1,8 @@
 """
-TrustMesh Session Routes — Phase 1: Agent Logic
+TrustMesh Session Routes — Phase 1: Agent Logic + Phase 2: Trust Engine + Crypto Ledger
 
-API endpoints for managing negotiation sessions between buyer and seller agents.
+API endpoints for managing negotiation sessions between buyer and seller agents,
+including trust evaluation (Phase 2) and the cryptographic ledger (Phase 3).
 """
 from __future__ import annotations
 
@@ -11,8 +12,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ..models import NegotiationMessage, NegotiationSession, NegotiationSessionStatus
+from ..crypto.ledger import verify_chain
+from ..db import load_ledger_entries
+from ..models import NegotiationMessage, NegotiationScenario, NegotiationSession, NegotiationSessionStatus, DEFAULT_SCENARIO
 from ..session_manager import session_manager
+from ..trust.engine import trust_engine
+from ..trust.models import TrustReport
 
 router = APIRouter()
 
@@ -27,6 +32,10 @@ class CreateSessionRequest(BaseModel):
     seller_agent_id: str = Field(default="seller-agent-001", description="Seller agent identifier")
     provider: str = Field(default="gemini", description="LLM provider (gemini/groq/mock)")
     initial_context: Optional[dict] = Field(default=None, description="Initial negotiation context")
+    scenario: Optional[NegotiationScenario] = Field(
+        default=None,
+        description="Negotiation scenario (prices, product, delivery). Falls back to DEFAULT_SCENARIO.",
+    )
 
 
 class SessionResponse(BaseModel):
@@ -65,6 +74,7 @@ async def create_session(request: CreateSessionRequest):
         seller_agent_id=request.seller_agent_id,
         initial_context=request.initial_context,
         provider=request.provider,
+        scenario=request.scenario,
     )
     return SessionResponse(
         session_id=session.session_id,
@@ -148,3 +158,81 @@ async def list_sessions():
         )
         for s in sessions
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 2: Trust evaluation
+# --------------------------------------------------------------------------- #
+
+@router.get(
+    "/{session_id}/trust",
+    response_model=TrustReport,
+    summary="Evaluate Trust",
+)
+async def evaluate_trust(session_id: str):
+    """
+    Run the full trust evaluation on a completed negotiation session.
+    """
+    try:
+        session = await session_manager.get_session(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    scenario = session_manager.scenarios.get(session_id) or DEFAULT_SCENARIO
+    report = trust_engine.evaluate_session(
+        session_id=session_id,
+        messages=session.messages,
+        buyer_agent_id=session.buyer_agent_id,
+        seller_agent_id=session.seller_agent_id,
+        scenario=scenario,
+    )
+    return report.model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3: Cryptographic ledger
+# --------------------------------------------------------------------------- #
+
+
+class LedgerEntry(BaseModel):
+    """A single entry in the hash-chained ledger."""
+    id: int
+    session_id: str
+    sequence: int
+    message_json: str
+    signature: str
+    signer_public_key: str
+    prev_hash: str
+    entry_hash: str
+    created_at: datetime
+
+
+class LedgerResponse(BaseModel):
+    """Full ledger for a session with chain-validity flag."""
+    session_id: str
+    entries: list[LedgerEntry]
+    chain_valid: bool
+    broken_at: Optional[int] = None
+
+
+@router.get(
+    "/{session_id}/ledger",
+    response_model=LedgerResponse,
+    summary="Get Ledger",
+)
+async def get_ledger(session_id: str):
+    """Return the full hash-chained ledger for a session with chain-validity."""
+    try:
+        await session_manager.get_session(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    raw_entries = await load_ledger_entries(session_id)
+    entries = [LedgerEntry(**e) for e in raw_entries]
+    chain_valid, broken_at = verify_chain(raw_entries)
+    return LedgerResponse(
+        session_id=session_id,
+        entries=entries,
+        chain_valid=chain_valid,
+        broken_at=broken_at,
+    )
