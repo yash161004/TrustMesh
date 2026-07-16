@@ -122,6 +122,10 @@ class NegotiationMessage(BaseModel):
         default=None,
         description="Base64-encoded Ed25519 signature (Phase 3+).",
     )
+    signer_public_key: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded Ed25519 public key of the signer.",
+    )
 
     @field_validator("timestamp", mode="before")
     @classmethod
