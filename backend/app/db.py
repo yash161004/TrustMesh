@@ -14,6 +14,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+import json
+
 from sqlalchemy import (
     Column,
     DateTime,
@@ -24,6 +26,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     select,
+    text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, joinedload, relationship
@@ -58,6 +61,7 @@ class SessionRecord(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     final_price = Column(Float, nullable=True)
     outcome = Column(String(20), nullable=True)  # "DEAL", "NO_DEAL", "FAILED"
+    scenario_json = Column(Text, nullable=True)  # JSON-encoded NegotiationScenario
 
     messages = relationship(
         "MessageRecord",
@@ -125,6 +129,19 @@ async def init_db() -> None:
     async with _async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # Migration: add scenario_json column if the table already exists without it
+    async with _async_engine.begin() as conn:
+        # Check if column exists
+        result = await conn.execute(
+            text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='scenario_json'")
+        )
+        row = result.one()
+        if row.cnt == 0:
+            await conn.execute(
+                text("ALTER TABLE negotiation_sessions ADD COLUMN scenario_json TEXT")
+            )
+            logger.info("Added scenario_json column to negotiation_sessions.")
+
     _async_session_factory = async_sessionmaker(
         _async_engine, class_=AsyncSession, expire_on_commit=False
     )
@@ -163,6 +180,7 @@ async def save_session(
     created_at: datetime,
     final_price: Optional[float] = None,
     outcome: Optional[str] = None,
+    scenario_json: Optional[str] = None,
 ) -> None:
     """Insert or update a session record."""
     factory = get_session_factory()
@@ -175,6 +193,8 @@ async def save_session(
             existing.status = status
             existing.final_price = final_price
             existing.outcome = outcome
+            if scenario_json is not None:
+                existing.scenario_json = scenario_json
         else:
             record = SessionRecord(
                 id=session_id,
@@ -184,6 +204,7 @@ async def save_session(
                 created_at=created_at,
                 final_price=final_price,
                 outcome=outcome,
+                scenario_json=scenario_json,
             )
             db.add(record)
         await db.commit()
@@ -232,7 +253,7 @@ async def load_session(session_id: str) -> Optional[dict]:
             .where(SessionRecord.id == session_id)
             .options(joinedload(SessionRecord.messages))
         )
-        record = result.scalar_one_or_none()
+        record = result.unique().scalar_one_or_none()
         if record is None:
             return None
         return _session_record_to_dict(record)
@@ -299,6 +320,7 @@ def _session_record_to_dict(record: SessionRecord) -> dict:
         "created_at": record.created_at,
         "final_price": record.final_price,
         "outcome": record.outcome,
+        "scenario_json": record.scenario_json,
         "messages": [
             _message_record_to_dict(m) for m in (record.messages or [])
         ],
