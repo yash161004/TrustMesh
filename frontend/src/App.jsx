@@ -50,7 +50,7 @@ function PhaseRoadmap() {
   const phases = [
     { num: 0, name: "Foundation",            status: "done",  desc: "Project scaffolding, models, health-check" },
     { num: 1, name: "Agent Logic",            status: "active", desc: "Buyer & Seller LLM agents (Gemini / Groq)" },
-    { num: 2, name: "Trust Engine",           status: "pending", desc: "Manipulation & policy violation detection" },
+    { num: 2, name: "Trust Engine",           status: "active", desc: "Manipulation & policy violation detection" },
     { num: 3, name: "Cryptographic Ledger",   status: "pending", desc: "Ed25519 signing, tamper-evident chain" },
     { num: 4, name: "WebSocket Live Stream",  status: "active", desc: "Real-time dashboard feed" },
     { num: 5, name: "Advanced Analysis",      status: "pending", desc: "Scoring, reports, export" },
@@ -131,6 +131,152 @@ function HealthBadge({ status }) {
   return <span className="badge-failed">API ✗ Offline</span>;
 }
 
+// ── Trust Engine components (Phase 2 UI) ──────────────────────────────────────
+
+const SEVERITY_STYLES = {
+  LOW:      "bg-white/8 text-white/50 border-white/10",
+  MEDIUM:   "bg-amber-500/12 text-amber-400 border-amber-500/20",
+  HIGH:     "bg-orange-500/12 text-orange-400 border-orange-500/20",
+  CRITICAL: "bg-red-500/12 text-red-400 border-red-500/20",
+};
+
+const TREND_ICONS = { improving: "↗", declining: "↘", stable: "→" };
+const TREND_COLORS = { improving: "text-emerald-400", declining: "text-red-400", stable: "text-white/40" };
+
+function TrustScoreGauge({ label, score, trend, agentId }) {
+  const pct = score != null ? Math.round(score) : null;
+  const color =
+    pct == null ? "bg-white/10" :
+    pct >= 80 ? "bg-emerald-500" :
+    pct >= 50 ? "bg-amber-500" : "bg-red-500";
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">{label}</span>
+        {trend && (
+          <span className={`text-xs font-mono ${TREND_COLORS[trend] || "text-white/40"}`}>
+            {TREND_ICONS[trend] || "→"} {trend}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+          {pct != null ? (
+            <div className={`h-full rounded-full ${color} transition-all duration-700`} style={{ width: `${pct}%` }} />
+          ) : (
+            <div className="h-full rounded-full bg-white/5 shimmer" />
+          )}
+        </div>
+        <span className={`text-sm font-bold tabular-nums ${pct != null ? "text-white/80" : "text-white/30"}`}>
+          {pct != null ? `${pct}/100` : "—"}
+        </span>
+      </div>
+      {agentId && <span className="text-[10px] text-white/25 font-mono truncate">{agentId}</span>}
+    </div>
+  );
+}
+
+function TrustScorePanel({ trustData, loading }) {
+  if (loading && !trustData) {
+    return (
+      <div className="glass rounded-2xl p-5 border-glow h-full flex flex-col items-center justify-center gap-3 min-h-[160px]">
+        <div className="h-5 w-5 border-2 border-trust-400 border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs text-white/40">Evaluating trust…</span>
+      </div>
+    );
+  }
+
+  if (!trustData) {
+    return (
+      <div className="glass rounded-2xl p-5 border-glow h-full flex flex-col items-center justify-center gap-2 min-h-[160px]">
+        <span className="text-2xl opacity-40">🛡️</span>
+        <span className="text-xs text-white/35">Trust scores pending — run a negotiation to evaluate</span>
+      </div>
+    );
+  }
+
+  const buyer = trustData.buyer_score;
+  const seller = trustData.seller_score;
+
+  return (
+    <div className="glass rounded-2xl p-5 border-glow">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white/90">Trust Scores</h2>
+        <span className="badge-active">Evaluated</span>
+      </div>
+      <div className="space-y-4">
+        <TrustScoreGauge label="Buyer" score={buyer?.overall_score} trend={buyer?.recent_trend} agentId={buyer?.agent_id} />
+        <TrustScoreGauge label="Seller" score={seller?.overall_score} trend={seller?.recent_trend} agentId={seller?.agent_id} />
+      </div>
+      {trustData.summary && (
+        <p className="mt-3 text-xs text-white/35 leading-relaxed border-t border-white/5 pt-3">{trustData.summary}</p>
+      )}
+    </div>
+  );
+}
+
+function ViolationRow({ v }) {
+  const sev = SEVERITY_STYLES[v.severity] || SEVERITY_STYLES.LOW;
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b border-white/5 last:border-0">
+      <span className={`shrink-0 mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${sev}`}>
+        {v.severity}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-xs font-semibold text-white/70">{v.violation_type.replace(/_/g, " ")}</span>
+          <span className="text-[10px] text-white/25 font-mono">turn {v.message_turn}</span>
+        </div>
+        <p className="text-xs text-white/40 leading-relaxed">{v.description}</p>
+        {v.agent_id && <span className="text-[10px] text-white/20 font-mono mt-0.5 block">{v.agent_id}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ViolationsList({ violations, loading }) {
+  if (loading && (!violations || violations.length === 0)) {
+    return (
+      <div className="glass rounded-2xl p-5 border-glow h-full flex flex-col items-center justify-center gap-3 min-h-[160px]">
+        <div className="h-5 w-5 border-2 border-trust-400 border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs text-white/40">Scanning for violations…</span>
+      </div>
+    );
+  }
+
+  if (!violations || violations.length === 0) {
+    return (
+      <div className="glass rounded-2xl p-5 border-glow h-full">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-white/90">Violations</h2>
+          <span className="badge-pending">Pending</span>
+        </div>
+        <div className="flex flex-col items-center justify-center py-8 gap-2">
+          <span className="text-2xl opacity-40">✓</span>
+          <span className="text-xs text-white/35">No violations detected — or detectors not yet implemented</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="glass rounded-2xl p-5 border-glow h-full">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white/90">Violations</h2>
+        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/25">
+          {violations.length} flagged
+        </span>
+      </div>
+      <div className="max-h-[320px] overflow-y-auto pr-1 -mr-1">
+        {violations.map((v, i) => (
+          <ViolationRow key={i} v={v} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
@@ -138,8 +284,11 @@ export default function App() {
   const [sessions, setSessions] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [chartData, setChartData] = useState([]);
+  const [trustData, setTrustData] = useState(null);
+  const [trustLoading, setTrustLoading] = useState(false);
   const wsRef = useRef(null);
   const chartDataRef = useRef([]);
+  const trustTimerRef = useRef(null);
 
   // Helper: messages → chart data (shared by WS and REST)
   const messagesToChartData = useCallback((messages) => {
@@ -175,6 +324,27 @@ export default function App() {
     }
     chartDataRef.current = data;
     setChartData([...data]);
+  }, []);
+
+  // Helper: fetch trust data for a session (debounced when triggered by WS)
+  const fetchTrust = useCallback((sessionId, debounce = false) => {
+    if (debounce) {
+      if (trustTimerRef.current) clearTimeout(trustTimerRef.current);
+      trustTimerRef.current = setTimeout(() => {
+        fetchTrust(sessionId, false);
+      }, 800);
+      return;
+    }
+    if (!sessionId) return;
+    setTrustLoading(true);
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    fetch(`${apiBase}/api/v1/sessions/${sessionId}/trust`)
+      .then(r => {
+        if (!r.ok) throw new Error(r.status);
+        return r.json();
+      })
+      .then(data => { setTrustData(data); setTrustLoading(false); })
+      .catch(() => { setTrustData(null); setTrustLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -216,6 +386,7 @@ export default function App() {
 
       ws.onopen = () => {
         console.log("[WS] Connected to session", selectedSessionId);
+        fetchTrust(selectedSessionId, false);
       };
 
       ws.onmessage = (event) => {
@@ -226,6 +397,7 @@ export default function App() {
             setChartData([...chartDataRef.current]);
           } else if (data.type === "new_message") {
             applyNewMessage(data.message);
+            fetchTrust(selectedSessionId, true);
           }
         } catch (e) {
           console.error("[WS] Failed to parse message:", e);
@@ -248,6 +420,7 @@ export default function App() {
               setChartData([...chartDataRef.current]);
             })
             .catch(e => console.error("REST fallback failed:", e));
+          fetchTrust(selectedSessionId, false);
         }
         wsRef.current = null;
       };
@@ -260,6 +433,11 @@ export default function App() {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (trustTimerRef.current) {
+        clearTimeout(trustTimerRef.current);
+        trustTimerRef.current = null;
+      }
+      setTrustData(null);
     };
   }, [selectedSessionId, messagesToChartData, applyNewMessage]);
 
@@ -333,7 +511,7 @@ export default function App() {
           <StatCard id="stat-phase"    label="Current Phase" value={apiData?.phase?.charAt(0) || '1'} sub={apiData?.phase?.slice(5) || 'Agent Logic'} color="blue"   delay={0} />
           <StatCard id="stat-agents"   label="LLM Agents"    value="2"           sub="Buyer + Seller"      color="green"  delay={80} />
           <StatCard id="stat-models"   label="AI Backends"   value="2"           sub="Gemini · Groq"       color="purple" delay={160} />
-          <StatCard id="stat-trust"    label="Trust Engine"  value="Phase 2"     sub="Coming soon"         color="amber"  delay={240} />
+          <StatCard id="stat-trust"    label="Trust Engine"  value={trustData ? `${trustData.violations?.length || 0} flags` : "Pending"} sub={trustData ? "Phase 2 Active" : "Run a negotiation to evaluate"} color="amber"  delay={240} />
         </div>
       </section>
 
@@ -366,6 +544,14 @@ export default function App() {
           <div>
             <PhaseRoadmap />
           </div>
+        </div>
+      </section>
+
+      {/* ── Trust Engine panel ── */}
+      <section id="trust-panel" className="relative z-10 max-w-7xl mx-auto px-6 mb-8">
+        <div className="grid md:grid-cols-2 gap-6">
+          <TrustScorePanel trustData={trustData} loading={trustLoading} />
+          <ViolationsList violations={trustData?.violations} loading={trustLoading} />
         </div>
       </section>
 
