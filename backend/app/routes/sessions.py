@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from pydantic import BaseModel, Field
 
 from ..crypto.ledger import verify_chain
-from ..db import load_ledger_entries, load_trust_report, save_trust_report
+from ..db import load_ledger_entries, load_trust_report, save_trust_report, get_agent_identity, update_agent_reputation
 from ..models import NegotiationMessage, NegotiationScenario, NegotiationSession, NegotiationSessionStatus, DEFAULT_SCENARIO
 from ..session_manager import session_manager, ws_manager
 from ..trust.engine import trust_engine
@@ -38,6 +38,8 @@ class CreateSessionRequest(BaseModel):
         default=None,
         description="Negotiation scenario (prices, product, delivery). Falls back to DEFAULT_SCENARIO.",
     )
+    buyer_identity_id: Optional[str] = Field(default=None, description="Buyer identity ID")
+    seller_identity_id: Optional[str] = Field(default=None, description="Seller identity ID")
 
 
 class SessionResponse(BaseModel):
@@ -45,6 +47,8 @@ class SessionResponse(BaseModel):
     session_id: str
     buyer_agent_id: str
     seller_agent_id: str
+    buyer_identity_id: Optional[str] = None
+    seller_identity_id: Optional[str] = None
     status: str
     created_at: datetime
     message_count: int
@@ -77,11 +81,15 @@ async def create_session(request: CreateSessionRequest):
         initial_context=request.initial_context,
         provider=request.provider,
         scenario=request.scenario,
+        buyer_identity_id=request.buyer_identity_id,
+        seller_identity_id=request.seller_identity_id,
     )
     return SessionResponse(
         session_id=session.session_id,
         buyer_agent_id=session.buyer_agent_id,
         seller_agent_id=session.seller_agent_id,
+        buyer_identity_id=session.buyer_identity_id,
+        seller_identity_id=session.seller_identity_id,
         status=session.status.value,
         created_at=session.created_at,
         message_count=len(session.messages),
@@ -127,6 +135,8 @@ async def get_session(session_id: str):
             session_id=session.session_id,
             buyer_agent_id=session.buyer_agent_id,
             seller_agent_id=session.seller_agent_id,
+            buyer_identity_id=session.buyer_identity_id,
+            seller_identity_id=session.seller_identity_id,
             status=session.status.value,
             created_at=session.created_at,
             message_count=len(session.messages),
@@ -154,6 +164,8 @@ async def list_sessions():
             session_id=s.session_id,
             buyer_agent_id=s.buyer_agent_id,
             seller_agent_id=s.seller_agent_id,
+            buyer_identity_id=s.buyer_identity_id,
+            seller_identity_id=s.seller_identity_id,
             status=s.status.value,
             created_at=s.created_at,
             message_count=len(s.messages),
@@ -193,6 +205,13 @@ async def evaluate_trust(
             import json
             return json.loads(cached["report_json"])
 
+    # Fetch identities to get the base reputation scores
+    buyer_identity = await get_agent_identity(session.buyer_identity_id) if session.buyer_identity_id else None
+    seller_identity = await get_agent_identity(session.seller_identity_id) if session.seller_identity_id else None
+    
+    buyer_base = buyer_identity["reputation_score"] if buyer_identity else 100.0
+    seller_base = seller_identity["reputation_score"] if seller_identity else 100.0
+
     # Full recompute (slow — runs all detectors including LLM calls)
     scenario = session_manager.scenarios.get(session_id) or DEFAULT_SCENARIO
     report = await trust_engine.evaluate_session(
@@ -201,6 +220,8 @@ async def evaluate_trust(
         buyer_agent_id=session.buyer_agent_id,
         seller_agent_id=session.seller_agent_id,
         scenario=scenario,
+        buyer_base_score=buyer_base,
+        seller_base_score=seller_base,
     )
 
     # Persist for future fast reads
@@ -209,6 +230,13 @@ async def evaluate_trust(
         report_json=json.dumps(report.model_dump(mode="json")),
         evaluated_at=report.evaluated_at,
     )
+
+    # Apply reputation update ONLY on first calculation
+    if not recompute and not cached:
+        if session.buyer_identity_id:
+            await update_agent_reputation(session.buyer_identity_id, report.buyer_score.overall_score)
+        if session.seller_identity_id:
+            await update_agent_reputation(session.seller_identity_id, report.seller_score.overall_score)
 
     return report.model_dump(mode="json")
 
