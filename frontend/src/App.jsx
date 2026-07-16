@@ -51,7 +51,7 @@ function PhaseRoadmap() {
     { num: 0, name: "Foundation",            status: "done",  desc: "Project scaffolding, models, health-check" },
     { num: 1, name: "Agent Logic",            status: "active", desc: "Buyer & Seller LLM agents (Gemini / Groq)" },
     { num: 2, name: "Trust Engine",           status: "active", desc: "Manipulation & policy violation detection" },
-    { num: 3, name: "Cryptographic Ledger",   status: "pending", desc: "Ed25519 signing, tamper-evident chain" },
+    { num: 3, name: "Cryptographic Ledger",   status: "active", desc: "Ed25519 signing, tamper-evident chain" },
     { num: 4, name: "WebSocket Live Stream",  status: "active", desc: "Real-time dashboard feed" },
     { num: 5, name: "Advanced Analysis",      status: "pending", desc: "Scoring, reports, export" },
   ];
@@ -277,6 +277,149 @@ function ViolationsList({ violations, loading }) {
   );
 }
 
+// ── Cryptographic Ledger components (Phase 3 UI) ──────────────────────────────
+
+function truncateHash(h, len = 10) {
+  if (!h) return "—";
+  return h.length > len ? h.slice(0, len) + "…" : h;
+}
+
+function LedgerEntryRow({ entry, isBroken, isLast }) {
+  let sender = "unknown";
+  try {
+    const msg = JSON.parse(entry.message_json);
+    sender = msg.sender || "unknown";
+  } catch { /* keep default */ }
+
+  const role = sender.includes("buyer") ? "buyer" : sender.includes("seller") ? "seller" : "unknown";
+  const roleColor = role === "buyer" ? "text-neon-blue" : role === "seller" ? "text-neon-green" : "text-white/40";
+
+  return (
+    <div className={`flex items-center gap-3 py-2.5 px-3 rounded-lg transition-colors ${
+      isBroken
+        ? "bg-red-500/10 border border-red-500/30"
+        : "hover:bg-white/[0.02]"
+    } ${!isLast ? "border-b border-white/5" : ""}`}>
+      {/* Sequence / turn number */}
+      <span className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
+        isBroken ? "bg-red-500/20 text-red-400" : "bg-trust-500/15 text-trust-300"
+      }`}>
+        {entry.sequence}
+      </span>
+
+      {/* Sender */}
+      <span className={`shrink-0 text-xs font-medium ${roleColor}`}>
+        {sender}
+      </span>
+
+      {/* Hash */}
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
+        <span className="text-[10px] text-white/25 uppercase tracking-wider shrink-0">hash</span>
+        <code className="text-[11px] font-mono text-white/45 truncate">{truncateHash(entry.entry_hash)}</code>
+      </div>
+
+      {/* Signature */}
+      <div className="shrink-0 flex items-center gap-1.5">
+        <span className="text-[10px] text-white/25 uppercase tracking-wider shrink-0">sig</span>
+        <code className="text-[11px] font-mono text-white/35 truncate max-w-[100px]">{truncateHash(entry.signature, 12)}</code>
+      </div>
+
+      {/* Broken indicator */}
+      {isBroken && (
+        <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30">
+          broken
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LedgerPanel({ ledgerData, loading }) {
+  if (loading && !ledgerData) {
+    return (
+      <div className="glass rounded-2xl p-5 border-glow h-full flex flex-col items-center justify-center gap-3 min-h-[200px]">
+        <div className="h-5 w-5 border-2 border-trust-400 border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs text-white/40">Loading ledger…</span>
+      </div>
+    );
+  }
+
+  if (!ledgerData) {
+    return (
+      <div className="glass rounded-2xl p-5 border-glow h-full flex flex-col items-center justify-center gap-2 min-h-[200px]">
+        <span className="text-2xl opacity-40">🔐</span>
+        <span className="text-xs text-white/35">Ledger pending — run a negotiation to generate entries</span>
+      </div>
+    );
+  }
+
+  const { entries, chain_valid, broken_at } = ledgerData;
+  const brokenSeq = chain_valid ? null : broken_at;
+
+  return (
+    <div className="glass rounded-2xl p-5 border-glow">
+      {/* Header with chain status */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white/90">Cryptographic Ledger</h2>
+        {chain_valid ? (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+              <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+            </svg>
+            Chain Verified
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/30 animate-pulse">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+              <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" clipRule="evenodd" />
+            </svg>
+            Chain Broken
+          </span>
+        )}
+      </div>
+
+      {/* Broken chain alert */}
+      {!chain_valid && broken_at != null && (
+        <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/25">
+          <div className="flex items-center gap-2 mb-1">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-red-400 shrink-0" aria-hidden="true">
+              <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Tamper Detected</span>
+          </div>
+          <p className="text-xs text-red-300/70">
+            Entry #{broken_at} has been modified or reordered — hash mismatch with previous entry in chain.
+          </p>
+        </div>
+      )}
+
+      {/* Entry count */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs text-white/30">{entries.length} entries</span>
+        <div className="flex-1 h-px bg-white/5" />
+      </div>
+
+      {/* Entry list */}
+      {entries.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-8 gap-2">
+          <span className="text-xs text-white/30">No ledger entries yet</span>
+        </div>
+      ) : (
+        <div className="max-h-[360px] overflow-y-auto pr-1 -mr-1">
+          {entries.map((entry, i) => (
+            <LedgerEntryRow
+              key={entry.id}
+              entry={entry}
+              isBroken={brokenSeq != null && entry.sequence === brokenSeq}
+              isLast={i === entries.length - 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
@@ -286,9 +429,12 @@ export default function App() {
   const [chartData, setChartData] = useState([]);
   const [trustData, setTrustData] = useState(null);
   const [trustLoading, setTrustLoading] = useState(false);
+  const [ledgerData, setLedgerData] = useState(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
   const wsRef = useRef(null);
   const chartDataRef = useRef([]);
   const trustTimerRef = useRef(null);
+  const ledgerTimerRef = useRef(null);
 
   // Helper: messages → chart data (shared by WS and REST)
   const messagesToChartData = useCallback((messages) => {
@@ -347,6 +493,27 @@ export default function App() {
       .catch(() => { setTrustData(null); setTrustLoading(false); });
   }, []);
 
+  // Helper: fetch ledger data for a session (debounced when triggered by WS)
+  const fetchLedger = useCallback((sessionId, debounce = false) => {
+    if (debounce) {
+      if (ledgerTimerRef.current) clearTimeout(ledgerTimerRef.current);
+      ledgerTimerRef.current = setTimeout(() => {
+        fetchLedger(sessionId, false);
+      }, 800);
+      return;
+    }
+    if (!sessionId) return;
+    setLedgerLoading(true);
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    fetch(`${apiBase}/api/v1/sessions/${sessionId}/ledger`)
+      .then(r => {
+        if (!r.ok) throw new Error(r.status);
+        return r.json();
+      })
+      .then(data => { setLedgerData(data); setLedgerLoading(false); })
+      .catch(() => { setLedgerData(null); setLedgerLoading(false); });
+  }, []);
+
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/health`)
       .then((r) => r.json())
@@ -387,6 +554,7 @@ export default function App() {
       ws.onopen = () => {
         console.log("[WS] Connected to session", selectedSessionId);
         fetchTrust(selectedSessionId, false);
+        fetchLedger(selectedSessionId, false);
       };
 
       ws.onmessage = (event) => {
@@ -398,6 +566,7 @@ export default function App() {
           } else if (data.type === "new_message") {
             applyNewMessage(data.message);
             fetchTrust(selectedSessionId, true);
+            fetchLedger(selectedSessionId, true);
           }
         } catch (e) {
           console.error("[WS] Failed to parse message:", e);
@@ -421,6 +590,7 @@ export default function App() {
             })
             .catch(e => console.error("REST fallback failed:", e));
           fetchTrust(selectedSessionId, false);
+          fetchLedger(selectedSessionId, false);
         }
         wsRef.current = null;
       };
@@ -437,7 +607,12 @@ export default function App() {
         clearTimeout(trustTimerRef.current);
         trustTimerRef.current = null;
       }
+      if (ledgerTimerRef.current) {
+        clearTimeout(ledgerTimerRef.current);
+        ledgerTimerRef.current = null;
+      }
       setTrustData(null);
+      setLedgerData(null);
     };
   }, [selectedSessionId, messagesToChartData, applyNewMessage]);
 
@@ -553,6 +728,11 @@ export default function App() {
           <TrustScorePanel trustData={trustData} loading={trustLoading} />
           <ViolationsList violations={trustData?.violations} loading={trustLoading} />
         </div>
+      </section>
+
+      {/* ── Cryptographic Ledger panel ── */}
+      <section id="ledger-panel" className="relative z-10 max-w-7xl mx-auto px-6 mb-8">
+        <LedgerPanel ledgerData={ledgerData} loading={ledgerLoading} />
       </section>
 
       {/* ── Architecture callouts ── */}
