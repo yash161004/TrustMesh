@@ -154,14 +154,8 @@ class CommitmentConsistencyChecker:
             "trust_impact": 0
         }
 
-    # =========================================================================
-    # DEPRECATED: REGEX BASED HEURISTICS (Phase 2 initial approach)
-    # Retained here for code history and as a fast pre-filter option in future.
-    # NOTE: To mitigate remaining LLM variance (e.g. false positives on truthful 
-    # concessions), a viable production strategy is to use a majority-vote 
-    # across 3 LLM calls. This was intentionally omitted here to avoid tripling 
-    # API costs for a benchmark-stage project.
-    # =========================================================================
-    def _deprecated_regex_claim_check(self, message: NegotiationMessage, history: list[NegotiationMessage], agent_history: list[NegotiationMessage]):
-        pass
+    # NOTE: To mitigate remaining LLM variance (e.g. false positives on
+    # truthful concessions), a viable production strategy is to use a
+    # majority-vote across 2+ LLM calls. This was intentionally limited to
+    # a single call here to avoid tripling API costs at benchmark stage.
 

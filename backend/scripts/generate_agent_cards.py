@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 
 def main():
+    """Generate, sign, and self-verify AgentCards for all defined roles."""
     roles = ["buyer", "seller"]
     generated = []
 
