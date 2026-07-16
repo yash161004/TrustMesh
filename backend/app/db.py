@@ -93,6 +93,20 @@ class MessageRecord(Base):
     session = relationship("SessionRecord", back_populates="messages")
 
 
+class TrustReportRecord(Base):
+    """Cached trust evaluation results for a session."""
+
+    __tablename__ = "trust_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(
+        String(36), ForeignKey("negotiation_sessions.id"), unique=True, nullable=False
+    )
+    report_json = Column(Text, nullable=False)
+    evaluated_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class LedgerEntryRecord(Base):
     """Append-only hash-chained ledger for signed messages."""
 
@@ -445,3 +459,53 @@ async def get_ledger_sequence_count(session_id: str) -> int:
         )
         record = result.scalar_one_or_none()
         return record.sequence if record else 0
+
+
+# ---------------------------------------------------------------------------
+# Trust report CRUD
+# ---------------------------------------------------------------------------
+
+
+async def save_trust_report(
+    session_id: str,
+    report_json: str,
+    evaluated_at: datetime,
+) -> None:
+    """Persist a computed trust report for a session (upsert)."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(TrustReportRecord).where(TrustReportRecord.session_id == session_id)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.report_json = report_json
+            existing.evaluated_at = evaluated_at
+            existing.created_at = datetime.now(timezone.utc)
+        else:
+            record = TrustReportRecord(
+                session_id=session_id,
+                report_json=report_json,
+                evaluated_at=evaluated_at,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(record)
+        await db.commit()
+
+
+async def load_trust_report(session_id: str) -> Optional[dict]:
+    """Load a cached trust report for a session. Returns None if not cached."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(TrustReportRecord).where(TrustReportRecord.session_id == session_id)
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            return None
+        return {
+            "session_id": record.session_id,
+            "report_json": record.report_json,
+            "evaluated_at": record.evaluated_at,
+            "created_at": record.created_at,
+        }

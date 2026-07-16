@@ -20,7 +20,46 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 
 from .config import get_settings
+import logging
+import re
 
+_SECRET_PATTERNS = [
+    r"(key=)[^&\s'\"]+", 
+    r"(Bearer\s+)[^&\s'\"]+", 
+    r"(gsk_)[a-zA-Z0-9]+", 
+    r"(AIza)[a-zA-Z0-9_-]+", 
+    r"(AQ\.)[a-zA-Z0-9_-]+",
+    r"(sk-or-)[a-zA-Z0-9_-]+"
+]
+
+def mask_secrets(text: str) -> str:
+    if not isinstance(text, str):
+        text = str(text)
+    for pattern in _SECRET_PATTERNS:
+        text = re.sub(pattern, r"\g<1>***REDACTED***", text)
+    return text
+
+class SecretMasker(logging.Filter):
+    def filter(self, record):
+        if isinstance(record.msg, str):
+            record.msg = mask_secrets(record.msg)
+        if isinstance(record.args, tuple):
+            new_args = []
+            for arg in record.args:
+                arg_str = str(arg)
+                masked_str = mask_secrets(arg_str)
+                if masked_str != arg_str:
+                    new_args.append(masked_str)
+                else:
+                    new_args.append(arg)
+            record.args = tuple(new_args)
+        return True
+
+# Apply to root logger and specific loggers globally
+logging.getLogger().addFilter(SecretMasker())
+logging.getLogger("httpx").addFilter(SecretMasker())
+logging.getLogger("httpcore").addFilter(SecretMasker())
+logging.getLogger(__name__).addFilter(SecretMasker())
 
 # ---------------------------------------------------------------------------
 # Placeholder detection
@@ -436,33 +475,205 @@ class GroqClient(LLMClient):
 
 
 # ---------------------------------------------------------------------------
-# Factory
+# OpenRouter client
 # ---------------------------------------------------------------------------
 
 
-def get_llm_client(provider: str = "gemini") -> LLMClient:
-    """Factory function to get the appropriate LLM client.
+class OpenRouterClient(LLMClient):
+    """OpenRouter API client (OpenAI-compatible)."""
 
-    Automatically falls back to mock mode if the API key for the
-    requested provider is empty, missing, or a placeholder value.
+    def __init__(self, api_key: str, model: str = "google/gemma-4-26b-a4b-it:free"):
+        resolved_key = _resolve_api_key(api_key)
+        self.api_key = resolved_key
+        self.model = model
+        self.base_url = "https://openrouter.ai/api/v1"
 
-    Special cases:
-    - provider="mock" → always returns a client with empty API key (mock mode)
-    - provider="gemini" with no valid key → falls through to mock
-    - provider="groq" with no valid key → falls through to mock
-    """
+    async def generate(self, messages: list[dict], system: str = "") -> str:
+        """Generate a response from OpenRouter."""
+        if not self.api_key:
+            return _mock_response_generic(messages)
+
+        formatted_messages = []
+        if system:
+            formatted_messages.append({"role": "system", "content": system})
+        formatted_messages.extend(messages)
+
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "HTTP-Referer": "https://github.com/",
+            "X-Title": "TrustMesh"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json={
+                    "model": self.model,
+                    "messages": formatted_messages,
+                    "max_tokens": 1024,
+                },
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+
+    async def generate_stream(self, messages: list[dict], system: str = "") -> AsyncIterator[str]:
+        """Generate a streaming response from OpenRouter."""
+        if not self.api_key:
+            async for chunk in self._mock_stream(messages):
+                yield chunk
+            return
+
+        formatted_messages = []
+        if system:
+            formatted_messages.append({"role": "system", "content": system})
+        formatted_messages.extend(messages)
+
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "HTTP-Referer": "https://github.com/",
+            "X-Title": "TrustMesh"
+        }
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                url,
+                json={
+                    "model": self.model,
+                    "messages": formatted_messages,
+                    "max_tokens": 1024,
+                    "stream": True,
+                },
+                headers=headers,
+                timeout=60.0,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.startswith("data: ") and line != "data: [DONE]":
+                        data = json.loads(line[6:])
+                        if "choices" in data and data["choices"]:
+                            delta = data["choices"][0].get("delta", {})
+                            if "content" in delta:
+                                yield delta["content"]
+
+    async def _mock_stream(self, messages: list[dict]) -> AsyncIterator[str]:
+        """Yield mock streaming response."""
+        response = _mock_response_generic(messages)
+        words = response.split()
+        for word in words:
+            yield word + " "
+
+
+# ---------------------------------------------------------------------------
+# Fallback client
+# ---------------------------------------------------------------------------
+
+class FallbackLLMClient(LLMClient):
+    """Client that tries multiple providers in sequence to handle rate limits and outages."""
+    def __init__(self, providers: list[str]):
+        settings = get_settings()
+        self.clients = []
+        self.last_used_provider = None
+        
+        for p in providers:
+            p = p.lower()
+            if p == "mock":
+                self.clients.append(("mock", GeminiClient(api_key="")))
+            elif p == "groq":
+                key = _resolve_api_key(settings.groq_api_key)
+                if key:
+                    self.clients.append(("groq", GroqClient(api_key=key)))
+                else:
+                    self.clients.append(("mock", GeminiClient(api_key="")))
+            elif p == "openrouter":
+                key = _resolve_api_key(settings.openrouter_api_key)
+                if key:
+                    self.clients.append(("openrouter", OpenRouterClient(api_key=key)))
+                else:
+                    self.clients.append(("mock", GeminiClient(api_key="")))
+            elif p == "gemini":
+                key = _resolve_api_key(settings.gemini_api_key)
+                if key:
+                    self.clients.append(("gemini", GeminiClient(api_key=key)))
+                else:
+                    self.clients.append(("mock", GeminiClient(api_key="")))
+
+        if not self.clients:
+            self.clients.append(("mock", GeminiClient(api_key="")))
+
+    async def generate(self, messages: list[dict], system: str = "") -> str:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        last_error = None
+        for provider_name, client in self.clients:
+            try:
+                result = await client.generate(messages, system)
+                logger.info(f"LLM call served by: {provider_name}")
+                self.last_used_provider = provider_name
+                return result
+            except httpx.HTTPError as e:
+                error_msg = mask_secrets(str(e))
+                logger.warning(f"Provider {provider_name} failed: {error_msg}. Falling back to next provider...")
+                last_error = error_msg
+            except Exception as e:
+                error_msg = mask_secrets(str(e))
+                logger.warning(f"Provider {provider_name} failed with unexpected error: {error_msg}. Falling back...")
+                last_error = error_msg
+                
+        raise Exception(f"All LLM providers failed. Last error: {last_error}")
+
+    async def generate_stream(self, messages: list[dict], system: str = "") -> AsyncIterator[str]:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        last_error = None
+        for provider_name, client in self.clients:
+            try:
+                stream = client.generate_stream(messages, system)
+                first_chunk = await stream.__anext__()
+                
+                logger.info(f"LLM stream served by: {provider_name}")
+                self.last_used_provider = provider_name
+                
+                yield first_chunk
+                async for chunk in stream:
+                    yield chunk
+                return
+            except httpx.HTTPError as e:
+                error_msg = mask_secrets(str(e))
+                logger.warning(f"Provider {provider_name} stream failed: {error_msg}. Falling back to next provider...")
+                last_error = error_msg
+                continue
+            except StopAsyncIteration:
+                self.last_used_provider = provider_name
+                return
+            except Exception as e:
+                error_msg = mask_secrets(str(e))
+                logger.warning(f"Provider {provider_name} stream failed with unexpected error: {error_msg}. Falling back...")
+                last_error = error_msg
+                continue
+                
+        raise Exception(f"All LLM providers failed to stream. Last error: {last_error}")
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+def get_llm_client(provider: str = None) -> LLMClient:
+    """Factory function to get the appropriate LLM client."""
+
     settings = get_settings()
-
-    if provider.lower() == "mock":
-        return GeminiClient(api_key="")  # Force mock mode
-
-    if provider.lower() == "groq":
-        key = _resolve_api_key(settings.groq_api_key)
-        if not key:
-            return GeminiClient(api_key="")  # Falls through to mock
-        return GroqClient(api_key=key)
-
-    key = _resolve_api_key(settings.gemini_api_key)
-    if not key:
-        return GeminiClient(api_key="")  # Falls through to mock
-    return GeminiClient(api_key=key)
+    
+    if provider:
+        providers = [provider]
+    else:
+        providers = settings.llm_providers
+        
+    return FallbackLLMClient(providers=providers)

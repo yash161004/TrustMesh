@@ -7,14 +7,15 @@ and live WebSocket streaming (Phase 4).
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from ..crypto.ledger import verify_chain
-from ..db import load_ledger_entries
+from ..db import load_ledger_entries, load_trust_report, save_trust_report
 from ..models import NegotiationMessage, NegotiationScenario, NegotiationSession, NegotiationSessionStatus, DEFAULT_SCENARIO
 from ..session_manager import session_manager, ws_manager
 from ..trust.engine import trust_engine
@@ -170,23 +171,45 @@ async def list_sessions():
     response_model=TrustReport,
     summary="Evaluate Trust",
 )
-async def evaluate_trust(session_id: str):
+async def evaluate_trust(
+    session_id: str,
+    recompute: bool = Query(default=False, description="Force recompute even if cached"),
+):
     """
-    Run the full trust evaluation on a completed negotiation session.
+    Return trust evaluation for a session.
+
+    By default serves the pre-computed/cached result (fast).
+    Pass ?recompute=true to force a fresh evaluation (slow — runs all detectors).
     """
     try:
         session = await session_manager.get_session(session_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    # Serve cached result unless recompute is requested
+    if not recompute:
+        cached = await load_trust_report(session_id)
+        if cached:
+            import json
+            return json.loads(cached["report_json"])
+
+    # Full recompute (slow — runs all detectors including LLM calls)
     scenario = session_manager.scenarios.get(session_id) or DEFAULT_SCENARIO
-    report = trust_engine.evaluate_session(
+    report = await trust_engine.evaluate_session(
         session_id=session_id,
         messages=session.messages,
         buyer_agent_id=session.buyer_agent_id,
         seller_agent_id=session.seller_agent_id,
         scenario=scenario,
     )
+
+    # Persist for future fast reads
+    await save_trust_report(
+        session_id=session_id,
+        report_json=json.dumps(report.model_dump(mode="json")),
+        evaluated_at=report.evaluated_at,
+    )
+
     return report.model_dump(mode="json")
 
 

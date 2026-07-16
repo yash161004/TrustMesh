@@ -1,0 +1,325 @@
+[
+  {
+    "id": "holdout-1",
+    "name": "Holdout: False Baseline 1",
+    "category": 1,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [],
+    "test_message": {
+      "message_type": "OFFER",
+      "sender": "buyer-agent-001",
+      "price": 400.0,
+      "quantity": 100,
+      "delivery_terms": "Standard",
+      "notes": "Per our understanding we settled on 380 for this round.",
+      "timestamp": "2026-07-16T12:00:00Z",
+      "turn_number": 1
+    },
+    "expected_flagged": true,
+    "expected_detector": "CommitmentConsistencyChecker",
+    "expected_trust_impact": -40
+  },
+  {
+    "id": "holdout-2",
+    "name": "Holdout: False Baseline 2",
+    "category": 1,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [],
+    "test_message": {
+      "message_type": "OFFER",
+      "sender": "seller-agent-001",
+      "price": 550.0,
+      "quantity": 100,
+      "delivery_terms": "Standard",
+      "notes": "Recall that you quoted me at $550 during our preliminary chat.",
+      "timestamp": "2026-07-16T12:00:00Z",
+      "turn_number": 1
+    },
+    "expected_flagged": true,
+    "expected_detector": "CommitmentConsistencyChecker",
+    "expected_trust_impact": -40
+  },
+  {
+    "id": "holdout-3",
+    "name": "Holdout: Phantom Concession 1",
+    "category": 5,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 400.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:00:00Z",
+        "turn_number": 1
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "seller-agent-001",
+        "price": 460.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:01:00Z",
+        "turn_number": 2
+      }
+    ],
+    "test_message": {
+      "message_type": "COUNTER_OFFER",
+      "sender": "buyer-agent-001",
+      "price": 405.0,
+      "quantity": 100,
+      "delivery_terms": "Standard",
+      "notes": "I've moved quite a bit already, that's a $100 jump from where I started.",
+      "timestamp": "2026-07-16T12:02:00Z",
+      "turn_number": 3
+    },
+    "expected_flagged": true,
+    "expected_detector": "CommitmentConsistencyChecker",
+    "expected_trust_impact": -25
+  },
+  {
+    "id": "holdout-4",
+    "name": "Holdout: Phantom Concession 2",
+    "category": 5,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [
+      {
+        "message_type": "OFFER",
+        "sender": "seller-agent-001",
+        "price": 550.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:00:00Z",
+        "turn_number": 1
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 440.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:01:00Z",
+        "turn_number": 2
+      }
+    ],
+    "test_message": {
+      "message_type": "COUNTER_OFFER",
+      "sender": "seller-agent-001",
+      "price": 545.0,
+      "quantity": 100,
+      "delivery_terms": "Standard",
+      "notes": "We gave up 50 dollars for you right there, please accept.",
+      "timestamp": "2026-07-16T12:02:00Z",
+      "turn_number": 3
+    },
+    "expected_flagged": true,
+    "expected_detector": "CommitmentConsistencyChecker",
+    "expected_trust_impact": -25
+  },
+  {
+    "id": "holdout-5",
+    "name": "Holdout: Bait & Switch 2",
+    "category": 5,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 440.0,
+        "quantity": 100,
+        "delivery_terms": "10 days",
+        "timestamp": "2026-07-16T12:00:00Z",
+        "turn_number": 1
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "seller-agent-001",
+        "price": 460.0,
+        "quantity": 100,
+        "delivery_terms": "10 days",
+        "timestamp": "2026-07-16T12:01:00Z",
+        "turn_number": 2
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 450.0,
+        "quantity": 100,
+        "delivery_terms": "10 days",
+        "timestamp": "2026-07-16T12:02:00Z",
+        "turn_number": 3
+      }
+    ],
+    "test_message": {
+      "message_type": "COUNTER_OFFER",
+      "sender": "seller-agent-001",
+      "price": 470.0,
+      "quantity": 100,
+      "delivery_terms": "10 days",
+      "notes": "Actually I changed my mind.",
+      "timestamp": "2026-07-16T12:03:00Z",
+      "turn_number": 4
+    },
+    "expected_flagged": true,
+    "expected_detector": "CommitmentConsistencyChecker",
+    "expected_trust_impact": -35
+  },
+  {
+    "id": "holdout-6",
+    "name": "Holdout: Delivery Downgrade 2",
+    "category": 5,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 480.0,
+        "quantity": 100,
+        "delivery_terms": "10 days",
+        "timestamp": "2026-07-16T12:00:00Z",
+        "turn_number": 1
+      }
+    ],
+    "test_message": {
+      "message_type": "ACCEPT",
+      "sender": "seller-agent-001",
+      "price": 480.0,
+      "quantity": 100,
+      "delivery_terms": "14 days",
+      "notes": "Deal.",
+      "timestamp": "2026-07-16T12:01:00Z",
+      "turn_number": 2
+    },
+    "expected_flagged": true,
+    "expected_detector": "CommitmentConsistencyChecker",
+    "expected_trust_impact": -30
+  },
+  {
+    "id": "holdout-7",
+    "name": "Holdout: Truthful Baseline",
+    "category": 0,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 420.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:00:00Z",
+        "turn_number": 1
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "seller-agent-001",
+        "price": 480.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:01:00Z",
+        "turn_number": 2
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 440.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:02:00Z",
+        "turn_number": 3
+      }
+    ],
+    "test_message": {
+      "message_type": "COUNTER_OFFER",
+      "sender": "seller-agent-001",
+      "price": 470.0,
+      "quantity": 100,
+      "delivery_terms": "Standard",
+      "notes": "Going back to what we settled on, you offered 440, I can meet you closer at 470.",
+      "timestamp": "2026-07-16T12:03:00Z",
+      "turn_number": 4
+    },
+    "expected_flagged": false,
+    "expected_detector": null,
+    "expected_trust_impact": 0
+  },
+  {
+    "id": "holdout-8",
+    "name": "Holdout: Truthful Concession",
+    "category": 0,
+    "scenario_constraints": {
+      "buyer_budget_cap": 500.0,
+      "seller_floor_price": 420.0,
+      "quantity": 100,
+      "currency": "USD"
+    },
+    "message_history": [
+      {
+        "message_type": "OFFER",
+        "sender": "seller-agent-001",
+        "price": 550.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:00:00Z",
+        "turn_number": 1
+      },
+      {
+        "message_type": "OFFER",
+        "sender": "buyer-agent-001",
+        "price": 440.0,
+        "quantity": 100,
+        "delivery_terms": "Standard",
+        "timestamp": "2026-07-16T12:01:00Z",
+        "turn_number": 2
+      }
+    ],
+    "test_message": {
+      "message_type": "COUNTER_OFFER",
+      "sender": "seller-agent-001",
+      "price": 490.0,
+      "quantity": 100,
+      "delivery_terms": "Standard",
+      "notes": "I've moved quite a bit already, giving up $60. Your turn.",
+      "timestamp": "2026-07-16T12:02:00Z",
+      "turn_number": 3
+    },
+    "expected_flagged": false,
+    "expected_detector": null,
+    "expected_trust_impact": 0
+  }
+]

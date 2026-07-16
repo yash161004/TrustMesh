@@ -10,10 +10,10 @@ import logging
 from typing import Optional
 
 from ..models import NegotiationMessage, NegotiationScenario
-from .detectors.commitments import CommitmentTracker
+from .detectors.commitments import CommitmentConsistencyChecker
 from .detectors.manipulation import ManipulationDetector
 from .detectors.policy import PolicyDeviationFlagger
-from .models import Severity, TrustReport, TrustScore, Violation
+from .models import Severity, TrustReport, TrustScore, Violation, ViolationType
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class TrustEngine:
     Combines results from:
     - PolicyDeviationFlagger (budget caps, floor prices)
     - ManipulationDetector (price swings, circular pricing)
-    - CommitmentTracker (broken promises)
+    - CommitmentConsistencyChecker (broken promises)
 
     Produces a per-agent TrustScore (0-100) and a complete TrustReport.
     """
@@ -43,20 +43,24 @@ class TrustEngine:
     def __init__(self):
         self.policy_flagger = PolicyDeviationFlagger()
         self.manipulation = ManipulationDetector()
-        self.commitments = CommitmentTracker()
+        self.commitments = CommitmentConsistencyChecker()
 
-    def evaluate_session(
+    async def evaluate_session(
         self,
         session_id: str,
         messages: list[NegotiationMessage],
         buyer_agent_id: str,
         seller_agent_id: str,
         scenario: Optional[NegotiationScenario] = None,
+        skip_llm: bool = False,
     ) -> TrustReport:
         """
         Run all trust detectors across the full message history.
 
-        Produces a TrustReport with per-agent scores and all violations.
+        When skip_llm=True, only runs rule-based detectors (policy +
+        commitment structural checks). Skips LLM-dependent manipulation
+        detection and LLM claim verification. Used by seed scripts and
+        batch pre-computation to avoid slow/rate-limited API calls.
         """
         all_violations: list[Violation] = []
 
@@ -84,15 +88,54 @@ class TrustEngine:
                         description=result["reason"]
                     ))
 
-        # Pattern checks across history
-        # (Stubbed for now as per instructions)
-        # all_violations.extend(self.manipulation.evaluate(messages, buyer_agent_id))
-        # all_violations.extend(self.manipulation.evaluate(messages, seller_agent_id))
+        # Manipulation checks (skipped when skip_llm=True)
+        if not skip_llm:
+            for msg in messages:
+                if scenario:
+                    history_so_far = [m for m in messages if m.turn_number < msg.turn_number]
+                    result = await self.manipulation.evaluate(msg, history_so_far, scenario)
+                    if result["flagged"]:
+                        impact = abs(result["trust_impact"])
+                        if impact >= 40:
+                            sev = Severity.CRITICAL
+                        elif impact >= 30:
+                            sev = Severity.HIGH
+                        elif impact >= 20:
+                            sev = Severity.MEDIUM
+                        else:
+                            sev = Severity.LOW
+                            
+                        all_violations.append(Violation(
+                            violation_type=ViolationType.MANIPULATION_PATTERN,
+                            severity=sev,
+                            message_turn=msg.turn_number,
+                            agent_id=msg.sender,
+                            description=result["reason"]
+                        ))
 
-        # Commitment checks
-        # (Stubbed for now as per instructions)
-        # all_violations.extend(self.commitments.evaluate(messages, buyer_agent_id))
-        # all_violations.extend(self.commitments.evaluate(messages, seller_agent_id))
+        # Commitment checks (structural checks always run; LLM claim verification skipped when skip_llm=True)
+        for msg in messages:
+            if scenario:
+                history_so_far = [m for m in messages if m.turn_number < msg.turn_number]
+                result = await self.commitments.evaluate(msg, history_so_far, scenario, skip_llm=skip_llm)
+                if result["flagged"]:
+                    impact = abs(result["trust_impact"])
+                    if impact >= 40:
+                        sev = Severity.CRITICAL
+                    elif impact >= 30:
+                        sev = Severity.HIGH
+                    elif impact >= 20:
+                        sev = Severity.MEDIUM
+                    else:
+                        sev = Severity.LOW
+                        
+                    all_violations.append(Violation(
+                        violation_type=ViolationType.BROKEN_COMMITMENT,
+                        severity=sev,
+                        message_turn=msg.turn_number,
+                        agent_id=msg.sender,
+                        description=result["reason"]
+                    ))
 
         # Compute per-agent scores
         buyer_violations = [v for v in all_violations if v.agent_id == buyer_agent_id]

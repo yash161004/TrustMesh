@@ -74,6 +74,7 @@ desktop.ini
 *.bak
 *.tmp
 nul
+.backups/
 
 # ─────────────────────── Cryptographic keys ─────────────────
 backend/.keys/

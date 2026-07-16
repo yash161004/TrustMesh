@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # AI Provider Keys (required in production; can be empty for Phase 0 scaffold)
     gemini_api_key: str = ""
     groq_api_key: str = ""
+    openrouter_api_key: str = ""
+    llm_provider_chain: str = "groq,gemini,openrouter,mock"
+
+    @property
+    def llm_providers(self) -> list[str]:
+        return [p.strip().lower() for p in self.llm_provider_chain.split(",") if p.strip()]
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./trustmesh.db"
