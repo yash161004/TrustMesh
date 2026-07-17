@@ -198,6 +198,8 @@ class SessionManager:
         initial_context: Optional[dict] = None,
         provider: str = "gemini",
         scenario: Optional[NegotiationScenario] = None,
+        buyer_identity_id: Optional[str] = None,
+        seller_identity_id: Optional[str] = None,
     ) -> NegotiationSession:
         """Create a new negotiation session with buyer and seller agents.
 
@@ -230,6 +232,8 @@ class SessionManager:
             session_id=session_id,
             buyer_agent_id=buyer_agent_id,
             seller_agent_id=seller_agent_id,
+            buyer_identity_id=buyer_identity_id,
+            seller_identity_id=seller_identity_id,
             status=NegotiationSessionStatus.PENDING,
             created_at=datetime.now(timezone.utc),
         )
@@ -239,6 +243,8 @@ class SessionManager:
             session_id=session_id,
             buyer_agent_id=buyer_agent_id,
             seller_agent_id=seller_agent_id,
+            buyer_identity_id=buyer_identity_id,
+            seller_identity_id=seller_identity_id,
             status=session.status.value,
             created_at=session.created_at,
             scenario_json=scenario.model_dump_json(),
@@ -562,6 +568,8 @@ class SessionManager:
             session_id=d["session_id"],
             buyer_agent_id=d["buyer_agent_id"],
             seller_agent_id=d["seller_agent_id"],
+            buyer_identity_id=d.get("buyer_identity_id"),
+            seller_identity_id=d.get("seller_identity_id"),
             status=NegotiationSessionStatus(d.get("status", "PENDING")),
             created_at=d["created_at"],
             messages=[

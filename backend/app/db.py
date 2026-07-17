@@ -49,6 +49,19 @@ class Base(DeclarativeBase):
 # ---------------------------------------------------------------------------
 
 
+class AgentIdentityRecord(Base):
+    """Persistent identity and reputation for agents across sessions."""
+    __tablename__ = "agent_identities"
+
+    id = Column(String(36), primary_key=True)  # UUID or string identifier
+    role = Column(String(20), nullable=False)
+    name = Column(String(128), nullable=False)
+    reputation_score = Column(Float, nullable=False, default=100.0)
+    session_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class SessionRecord(Base):
     """Persistent storage for negotiation sessions."""
 
@@ -57,6 +70,8 @@ class SessionRecord(Base):
     id = Column(String(36), primary_key=True)  # UUID
     buyer_agent_id = Column(String(128), nullable=False)
     seller_agent_id = Column(String(128), nullable=False)
+    buyer_identity_id = Column(String(36), nullable=True)
+    seller_identity_id = Column(String(36), nullable=True)
     status = Column(String(20), nullable=False, default="PENDING")
     created_at = Column(DateTime(timezone=True), nullable=False)
     final_price = Column(Float, nullable=True)
@@ -187,9 +202,62 @@ async def init_db() -> None:
             )
             logger.info("Added signer_public_key column to negotiation_messages.")
 
+    # Migration: add identity foreign keys if missing
+    async with _async_engine.begin() as conn:
+        result = await conn.execute(
+            text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='buyer_identity_id'")
+        )
+        row = result.one()
+        if row.cnt == 0:
+            await conn.execute(
+                text("ALTER TABLE negotiation_sessions ADD COLUMN buyer_identity_id TEXT")
+            )
+            await conn.execute(
+                text("ALTER TABLE negotiation_sessions ADD COLUMN seller_identity_id TEXT")
+            )
+            logger.info("Added identity foreign keys to negotiation_sessions.")
+
     _async_session_factory = async_sessionmaker(
         _async_engine, class_=AsyncSession, expire_on_commit=False
     )
+
+    # Seed Agent Identities
+    async with _async_session_factory() as db:
+        result = await db.execute(select(AgentIdentityRecord).limit(1))
+        if result.scalar_one_or_none() is None:
+            now = datetime.now(timezone.utc)
+            identities = [
+                AgentIdentityRecord(
+                    id="demo-buyer-bad-actor",
+                    role="BUYER",
+                    name="Demo Buyer (Bad Actor)",
+                    reputation_score=65.0,
+                    session_count=1,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                AgentIdentityRecord(
+                    id="demo-buyer-good",
+                    role="BUYER",
+                    name="Demo Buyer (Good)",
+                    reputation_score=100.0,
+                    session_count=0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                AgentIdentityRecord(
+                    id="demo-seller-good",
+                    role="SELLER",
+                    name="Demo Seller (Good)",
+                    reputation_score=100.0,
+                    session_count=0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+            db.add_all(identities)
+            await db.commit()
+            logger.info("Seeded initial agent identities.")
 
     _db_initialised = True
     logger.info("Database initialised: %s", database_url)
@@ -223,6 +291,8 @@ async def save_session(
     seller_agent_id: str,
     status: str,
     created_at: datetime,
+    buyer_identity_id: Optional[str] = None,
+    seller_identity_id: Optional[str] = None,
     final_price: Optional[float] = None,
     outcome: Optional[str] = None,
     scenario_json: Optional[str] = None,
@@ -238,6 +308,10 @@ async def save_session(
             existing.status = status
             existing.final_price = final_price
             existing.outcome = outcome
+            if buyer_identity_id is not None:
+                existing.buyer_identity_id = buyer_identity_id
+            if seller_identity_id is not None:
+                existing.seller_identity_id = seller_identity_id
             if scenario_json is not None:
                 existing.scenario_json = scenario_json
         else:
@@ -245,6 +319,8 @@ async def save_session(
                 id=session_id,
                 buyer_agent_id=buyer_agent_id,
                 seller_agent_id=seller_agent_id,
+                buyer_identity_id=buyer_identity_id,
+                seller_identity_id=seller_identity_id,
                 status=status,
                 created_at=created_at,
                 final_price=final_price,
@@ -363,6 +439,8 @@ def _session_record_to_dict(record: SessionRecord) -> dict:
         "session_id": record.id,
         "buyer_agent_id": record.buyer_agent_id,
         "seller_agent_id": record.seller_agent_id,
+        "buyer_identity_id": record.buyer_identity_id,
+        "seller_identity_id": record.seller_identity_id,
         "status": record.status,
         "created_at": record.created_at,
         "final_price": record.final_price,
@@ -509,3 +587,67 @@ async def load_trust_report(session_id: str) -> Optional[dict]:
             "evaluated_at": record.evaluated_at,
             "created_at": record.created_at,
         }
+
+# ---------------------------------------------------------------------------
+# Agent Identity CRUD & Reputation Updates
+# ---------------------------------------------------------------------------
+
+async def get_agent_identity(identity_id: str) -> Optional[dict]:
+    """Load an AgentIdentity by ID."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentIdentityRecord).where(AgentIdentityRecord.id == identity_id)
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            return None
+        return {
+            "id": record.id,
+            "role": record.role,
+            "name": record.name,
+            "reputation_score": record.reputation_score,
+            "session_count": record.session_count,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        }
+
+async def get_all_agent_identities() -> list[dict]:
+    """List all agent identities."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(AgentIdentityRecord))
+        records = result.scalars().all()
+        return [
+            {
+                "id": record.id,
+                "role": record.role,
+                "name": record.name,
+                "reputation_score": record.reputation_score,
+                "session_count": record.session_count,
+                "created_at": record.created_at,
+                "updated_at": record.updated_at,
+            }
+            for record in records
+        ]
+
+async def update_agent_reputation(identity_id: str, session_final_score: float) -> None:
+    """Update agent reputation using exponential recency weighting."""
+    if not identity_id:
+        return
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentIdentityRecord).where(AgentIdentityRecord.id == identity_id)
+        )
+        record = result.scalar_one_or_none()
+        if record:
+            new_reputation = (0.7 * session_final_score) + (0.3 * record.reputation_score)
+            record.reputation_score = new_reputation
+            record.session_count += 1
+            record.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            logger.info(
+                "Updated reputation for %s to %.2f (session_count: %d)",
+                identity_id, new_reputation, record.session_count
+            )

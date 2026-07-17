@@ -143,7 +143,7 @@ const SEVERITY_STYLES = {
 const TREND_ICONS = { improving: "↗", declining: "↘", stable: "→" };
 const TREND_COLORS = { improving: "text-emerald-400", declining: "text-red-400", stable: "text-white/40" };
 
-function TrustScoreGauge({ label, score, trend, agentId }) {
+function TrustScoreGauge({ label, score, trend, agentId, reputationScore, sessionCount }) {
   const pct = score != null ? Math.round(score) : null;
   const color =
     pct == null ? "bg-white/10" :
@@ -172,12 +172,21 @@ function TrustScoreGauge({ label, score, trend, agentId }) {
           {pct != null ? `${pct}/100` : "—"}
         </span>
       </div>
-      {agentId && <span className="text-[10px] text-white/25 font-mono truncate">{agentId}</span>}
+      {agentId && (
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[10px] text-white/25 font-mono truncate">{agentId}</span>
+          {reputationScore != null && (
+            <span className="text-[10px] text-white/40">
+              Reputation: <span className="font-bold text-white/60">{Math.round(reputationScore)}</span> ({sessionCount} sessions)
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function TrustScorePanel({ trustData, loading }) {
+function TrustScorePanel({ trustData, loading, session, identities }) {
   if (loading && !trustData) {
     return (
       <div className="glass rounded-2xl p-5 border-glow h-full flex flex-col items-center justify-center gap-3 min-h-[160px]">
@@ -199,6 +208,9 @@ function TrustScorePanel({ trustData, loading }) {
   const buyer = trustData.buyer_score;
   const seller = trustData.seller_score;
 
+  const buyerIdentity = session?.buyer_identity_id ? identities[session.buyer_identity_id] : null;
+  const sellerIdentity = session?.seller_identity_id ? identities[session.seller_identity_id] : null;
+
   return (
     <div className="glass rounded-2xl p-5 border-glow">
       <div className="flex items-center justify-between mb-4">
@@ -206,8 +218,22 @@ function TrustScorePanel({ trustData, loading }) {
         <span className="badge-active">Evaluated</span>
       </div>
       <div className="space-y-4">
-        <TrustScoreGauge label="Buyer" score={buyer?.overall_score} trend={buyer?.recent_trend} agentId={buyer?.agent_id} />
-        <TrustScoreGauge label="Seller" score={seller?.overall_score} trend={seller?.recent_trend} agentId={seller?.agent_id} />
+        <TrustScoreGauge 
+          label="Buyer" 
+          score={buyer?.overall_score} 
+          trend={buyer?.recent_trend} 
+          agentId={buyer?.agent_id} 
+          reputationScore={buyerIdentity?.reputation_score}
+          sessionCount={buyerIdentity?.session_count}
+        />
+        <TrustScoreGauge 
+          label="Seller" 
+          score={seller?.overall_score} 
+          trend={seller?.recent_trend} 
+          agentId={seller?.agent_id} 
+          reputationScore={sellerIdentity?.reputation_score}
+          sessionCount={sellerIdentity?.session_count}
+        />
       </div>
       {trustData.summary && (
         <p className="mt-3 text-xs text-white/35 leading-relaxed border-t border-white/5 pt-3">{trustData.summary}</p>
@@ -227,6 +253,11 @@ function ViolationRow({ v }) {
         <div className="flex items-center gap-2 mb-0.5">
           <span className="text-xs font-semibold text-white/70">{v.violation_type.replace(/_/g, " ")}</span>
           <span className="text-[10px] text-white/25 font-mono">turn {v.message_turn}</span>
+          {v.status === "DISPUTED" && (
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest bg-amber-500/20 text-amber-500 border border-amber-500/40 ml-1">
+              DISPUTED
+            </span>
+          )}
         </div>
         <p className="text-xs text-white/40 leading-relaxed">{v.description}</p>
         {v.agent_id && <span className="text-[10px] text-white/20 font-mono mt-0.5 block">{v.agent_id}</span>}
@@ -264,9 +295,16 @@ function ViolationsList({ violations, loading }) {
     <div className="glass rounded-2xl p-5 border-glow h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white/90">Violations</h2>
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/25">
-          {violations.length} flagged
-        </span>
+        <div className="flex items-center gap-2">
+          {violations.some(v => v.status === "DISPUTED") && (
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-500 border border-amber-500/25">
+              {violations.filter(v => v.status === "DISPUTED").length} disputed
+            </span>
+          )}
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/25">
+            {violations.filter(v => v.status !== "DISPUTED").length} flagged
+          </span>
+        </div>
       </div>
       <div className="max-h-[320px] overflow-y-auto pr-1 -mr-1">
         {violations.map((v, i) => (
@@ -425,6 +463,7 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [apiData,   setApiData]   = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [identities, setIdentities] = useState({});
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [trustData, setTrustData] = useState(null);
@@ -520,7 +559,6 @@ export default function App() {
       .then((d) => { setApiData(d); setApiStatus("ok"); })
       .catch(() => setApiStatus("error"));
       
-    // Fetch sessions
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/sessions`)
       .then(r => r.json())
       .then(data => {
@@ -530,6 +568,16 @@ export default function App() {
         }
       })
       .catch(e => console.error("Failed to fetch sessions", e));
+
+    // Fetch identities
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/identities`)
+      .then(r => r.json())
+      .then(data => {
+        const idMap = {};
+        data.forEach(id => idMap[id.id] = id);
+        setIdentities(idMap);
+      })
+      .catch(e => console.error("Failed to fetch identities", e));
   }, []);
 
   // WebSocket connection with REST fallback (Phase 4)
@@ -725,7 +773,12 @@ export default function App() {
       {/* ── Trust Engine panel ── */}
       <section id="trust-panel" className="relative z-10 max-w-7xl mx-auto px-6 mb-8">
         <div className="grid md:grid-cols-2 gap-6">
-          <TrustScorePanel trustData={trustData} loading={trustLoading} />
+          <TrustScorePanel 
+            trustData={trustData} 
+            loading={trustLoading} 
+            session={sessions.find(s => s.session_id === selectedSessionId)}
+            identities={identities}
+          />
           <ViolationsList violations={trustData?.violations} loading={trustLoading} />
         </div>
       </section>

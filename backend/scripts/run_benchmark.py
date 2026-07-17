@@ -18,6 +18,26 @@ import hashlib
 import sys
 from app.llm_client import get_llm_client
 
+
+def brier_score(predictions: list[float], labels: list[int]) -> float:
+    return sum((p - y) ** 2 for p, y in zip(predictions, labels)) / len(labels)
+
+
+def expected_calibration_error(predictions: list[float], labels: list[int], n_bins: int = 10) -> float:
+    bins = [[] for _ in range(n_bins)]
+    for p, y in zip(predictions, labels):
+        idx = min(int(p * n_bins), n_bins - 1)
+        bins[idx].append((p, y))
+    ece = 0.0
+    n = len(labels)
+    for bucket in bins:
+        if not bucket:
+            continue
+        avg_conf = sum(p for p, _ in bucket) / len(bucket)
+        avg_acc = sum(y for _, y in bucket) / len(bucket)
+        ece += (len(bucket) / n) * abs(avg_conf - avg_acc)
+    return ece
+
 async def run_benchmark():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-cache", action="store_true", help="Disable LLM response caching")
@@ -73,6 +93,8 @@ async def run_benchmark():
         "CommitmentConsistencyChecker": {"TP": 0, "FP": 0, "TN": 0, "FN": 0, "Total": 0},
         "ManipulationDetector": {"TP": 0, "FP": 0, "TN": 0, "FN": 0, "Total": 0}
     }
+    manip_predictions: list[float] = []
+    manip_labels: list[int] = []
     
     for item in data:
         cat = item["category"]
@@ -140,10 +162,23 @@ async def run_benchmark():
         # ManipulationDetector
         if expected_detector == "ManipulationDetector" or cat == 0:
             metrics["ManipulationDetector"]["Total"] += 1
-            result = await manipulation_detector.evaluate(message, history, scenario)
+            try:
+                result = await manipulation_detector.evaluate(message, history, scenario)
+            except RuntimeError as e:
+                print(f"[Manipulation ERROR/RETRY] {item['name']} - {e}")
+                if "Errors" not in metrics["ManipulationDetector"]:
+                    metrics["ManipulationDetector"]["Errors"] = 0
+                metrics["ManipulationDetector"]["Errors"] += 1
+                continue
+                
             await asyncio.sleep(2)  # Avoid rate limits
             is_flagged = result["flagged"]
             should_flag = expected_flagged and expected_detector == "ManipulationDetector"
+            
+            confidence = result.get("confidence_score")
+            if confidence is not None:
+                manip_predictions.append(confidence)
+                manip_labels.append(1 if expected_flagged else 0)
             
             if is_flagged and should_flag:
                 metrics["ManipulationDetector"]["TP"] += 1
@@ -171,9 +206,17 @@ async def run_benchmark():
         print(f"False Positives     : {fp}")
         print(f"True Negatives      : {tn}")
         print(f"False Negatives     : {fn}")
+        errors = m.get("Errors", 0)
+        if errors > 0:
+            print(f"Errors (API failed) : {errors}")
         print(f"Precision           : {precision:.2f}")
         print(f"Recall              : {recall:.2f}")
         print(f"F1 Score            : {f1:.2f}")
+        if detector_name == "ManipulationDetector" and manip_predictions:
+            bs = brier_score(manip_predictions, manip_labels)
+            ece = expected_calibration_error(manip_predictions, manip_labels)
+            print(f"Brier Score         : {bs:.4f}")
+            print(f"ECE                 : {ece:.4f}")
         print("=" * 40)
         
         if precision < 0.8 or recall < 0.8:

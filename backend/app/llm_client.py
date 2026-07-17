@@ -13,6 +13,7 @@ for ANY product/pricing scenario — not just the office-chairs default.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Optional
@@ -22,6 +23,8 @@ import httpx
 from .config import get_settings
 import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 _SECRET_PATTERNS = [
     r"(key=)[^&\s'\"]+", 
@@ -95,6 +98,63 @@ def _resolve_api_key(key: str) -> str:
 # ---------------------------------------------------------------------------
 # Mock response helpers
 # ---------------------------------------------------------------------------
+
+import time as _time
+
+_provider_semaphores = {
+    "gemini": asyncio.Semaphore(1),
+    "groq": asyncio.Semaphore(1),
+    "openrouter": asyncio.Semaphore(1)
+}
+
+_provider_last_call = {
+    "gemini": 0.0,
+    "groq": 0.0,
+    "openrouter": 0.0,
+}
+
+_provider_min_interval = {
+    "gemini": 1.1,
+    "groq": 2.1,
+    "openrouter": 3.1,
+}
+
+async def _execute_with_backoff(provider_name: str, call_fn):
+    semaphore = _provider_semaphores.get(provider_name)
+    max_attempts = 4
+    last_error = None
+    
+    async with semaphore:
+        now = _time.monotonic()
+        last = _provider_last_call.get(provider_name, 0.0)
+        min_int = _provider_min_interval.get(provider_name, 0.0)
+        if last > 0:
+            wait = min_int - (now - last)
+            if wait > 0:
+                await asyncio.sleep(wait)
+        _provider_last_call[provider_name] = _time.monotonic()
+        
+        for attempt in range(max_attempts):
+            try:
+                return await call_fn()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_attempts - 1:
+                    retry_after = e.response.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        delay = float(retry_after)
+                    else:
+                        delay = 2 ** attempt
+                        
+                    logger.warning(f"{provider_name.capitalize()} 429 rate limited (attempt {attempt + 1}), retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                    last_error = e
+                else:
+                    raise
+            except httpx.HTTPError as e:
+                last_error = e
+                raise
+                
+    raise last_error
 
 _CURRENCY_SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
 
@@ -331,15 +391,18 @@ class GeminiClient(LLMClient):
         contents = self._format_messages(messages, system)
         url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                url,
-                json={"contents": contents},
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+        async def _call():
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json={"contents": contents},
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+                
+        return await _execute_with_backoff("gemini", _call)
 
     async def generate_stream(self, messages: list[dict], system: str = "") -> AsyncIterator[str]:
         """Generate a streaming response from Gemini."""
@@ -414,20 +477,23 @@ class GroqClient(LLMClient):
         url = f"{self.base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                url,
-                json={
-                    "model": self.model,
-                    "messages": formatted_messages,
-                    "max_tokens": 1024,
-                },
-                headers=headers,
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        async def _call():
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json={
+                        "model": self.model,
+                        "messages": formatted_messages,
+                        "max_tokens": 1024,
+                    },
+                    headers=headers,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+                
+        return await _execute_with_backoff("groq", _call)
 
     async def generate_stream(self, messages: list[dict], system: str = "") -> AsyncIterator[str]:
         """Generate a streaming response from Groq."""
@@ -505,20 +571,23 @@ class OpenRouterClient(LLMClient):
             "X-Title": "TrustMesh"
         }
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                url,
-                json={
-                    "model": self.model,
-                    "messages": formatted_messages,
-                    "max_tokens": 1024,
-                },
-                headers=headers,
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        async def _call():
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json={
+                        "model": self.model,
+                        "messages": formatted_messages,
+                        "max_tokens": 1024,
+                    },
+                    headers=headers,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+                
+        return await _execute_with_backoff("openrouter", _call)
 
     async def generate_stream(self, messages: list[dict], system: str = "") -> AsyncIterator[str]:
         """Generate a streaming response from OpenRouter."""
@@ -607,9 +676,6 @@ class FallbackLLMClient(LLMClient):
             self.clients.append(("mock", GeminiClient(api_key="")))
 
     async def generate(self, messages: list[dict], system: str = "") -> str:
-        import logging
-        logger = logging.getLogger(__name__)
-        
         last_error = None
         for provider_name, client in self.clients:
             try:
@@ -629,9 +695,6 @@ class FallbackLLMClient(LLMClient):
         raise Exception(f"All LLM providers failed. Last error: {last_error}")
 
     async def generate_stream(self, messages: list[dict], system: str = "") -> AsyncIterator[str]:
-        import logging
-        logger = logging.getLogger(__name__)
-        
         last_error = None
         for provider_name, client in self.clients:
             try:

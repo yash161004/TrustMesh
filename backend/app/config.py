@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openrouter_api_key: str = ""
     llm_provider_chain: str = "groq,gemini,openrouter,mock"
+    enable_calibration_anchor: bool = False
 
     @property
     def llm_providers(self) -> list[str]:

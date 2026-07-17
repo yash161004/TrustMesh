@@ -30,6 +30,12 @@ class Severity(str, Enum):
     CRITICAL = "CRITICAL"
 
 
+class ViolationStatus(str, Enum):
+    FLAGGED = "FLAGGED"
+    DISPUTED = "DISPUTED"
+    CLEARED = "CLEARED"
+
+
 class Violation(BaseModel):
     """A single detected trust violation."""
     violation_type: ViolationType
@@ -37,6 +43,7 @@ class Violation(BaseModel):
     message_turn: int
     agent_id: str
     description: str
+    status: ViolationStatus = Field(default=ViolationStatus.FLAGGED)
     detail: Optional[dict] = None
 
 

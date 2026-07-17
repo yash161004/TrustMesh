@@ -1,0 +1,19 @@
+{
+  "card": {
+    "agent_id": "demo-buyer-bad-actor",
+    "role": "buyer",
+    "display_name": "Demo Buyer (Bad Actor)",
+    "capabilities": [
+      "negotiate_price",
+      "commit_to_terms",
+      "counter_offer",
+      "request_discount",
+      "set_budget_ceiling",
+      "evaluate_proposal"
+    ],
+    "public_key": "vwZS1EMq9fGTQY0taQM/p2rouCGzsHhM03EGv8mJvF8=",
+    "created_at": "2026-07-16T15:38:46.481890Z",
+    "version": "1.0.0"
+  },
+  "signature": "n86ufbN1fDGtIKoBIp1Fu7WHGGkRh/s2OE+o8IegKpgO6khCyxjyLMLVzBqk2xe2XKnhs2U5gR9YZrh7HKJdAQ=="
+}

@@ -13,14 +13,38 @@ import argparse
 import hashlib
 from app.llm_client import get_llm_client
 
+
+def brier_score(predictions: list[float], labels: list[int]) -> float:
+    return sum((p - y) ** 2 for p, y in zip(predictions, labels)) / len(labels)
+
+
+def expected_calibration_error(predictions: list[float], labels: list[int], n_bins: int = 10) -> float:
+    bins = [[] for _ in range(n_bins)]
+    for p, y in zip(predictions, labels):
+        idx = min(int(p * n_bins), n_bins - 1)
+        bins[idx].append((p, y))
+    ece = 0.0
+    n = len(labels)
+    for bucket in bins:
+        if not bucket:
+            continue
+        avg_conf = sum(p for p, _ in bucket) / len(bucket)
+        avg_acc = sum(y for _, y in bucket) / len(bucket)
+        ece += (len(bucket) / n) * abs(avg_conf - avg_acc)
+    return ece
+
 async def run_holdout():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-cache", action="store_true", help="Disable LLM response caching")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of scenarios to run")
     args = parser.parse_args()
 
     scenarios_path = Path(__file__).parent.parent / "tests" / "benchmark_data" / "manipulation_holdout.json"
     with open(scenarios_path, "r") as f:
         data = json.load(f)
+        
+    if args.limit:
+        data = data[:args.limit]
         
     detector = ManipulationDetector()
     llm = get_llm_client()
@@ -59,6 +83,8 @@ async def run_holdout():
     detector.llm.generate = cached_generate
     
     metrics = {"TP": 0, "FP": 0, "TN": 0, "FN": 0, "Total": 0}
+    predictions: list[float] = []
+    labels: list[int] = []
     
     for item in data:
         cat = item["category"]
@@ -90,6 +116,11 @@ async def run_holdout():
         is_flagged = result["flagged"]
         should_flag = expected_flagged
         
+        confidence = result.get("confidence_score")
+        if confidence is not None:
+            predictions.append(confidence)
+            labels.append(1 if expected_flagged else 0)
+        
         if is_flagged and should_flag:
             metrics["TP"] += 1
         elif is_flagged and not should_flag:
@@ -117,6 +148,11 @@ async def run_holdout():
     print(f"Precision           : {precision:.2f}")
     print(f"Recall              : {recall:.2f}")
     print(f"F1 Score            : {f1:.2f}")
+    if predictions:
+        bs = brier_score(predictions, labels)
+        ece = expected_calibration_error(predictions, labels)
+        print(f"Brier Score         : {bs:.4f}")
+        print(f"ECE                 : {ece:.4f}")
     print("=" * 40)
     print("LLM Provider Usage Summary")
     print("=" * 40)

@@ -13,7 +13,7 @@ from ..models import NegotiationMessage, NegotiationScenario
 from .detectors.commitments import CommitmentConsistencyChecker
 from .detectors.manipulation import ManipulationDetector
 from .detectors.policy import PolicyDeviationFlagger
-from .models import Severity, TrustReport, TrustScore, Violation, ViolationType
+from .models import Severity, TrustReport, TrustScore, Violation, ViolationType, ViolationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,8 @@ class TrustEngine:
         seller_agent_id: str,
         scenario: Optional[NegotiationScenario] = None,
         skip_llm: bool = False,
+        buyer_base_score: float = 100.0,
+        seller_base_score: float = 100.0,
     ) -> TrustReport:
         """
         Run all trust detectors across the full message history.
@@ -105,12 +107,15 @@ class TrustEngine:
                         else:
                             sev = Severity.LOW
                             
+                        status_str = result.get("status", "FLAGGED")
+                        
                         all_violations.append(Violation(
                             violation_type=ViolationType.MANIPULATION_PATTERN,
                             severity=sev,
                             message_turn=msg.turn_number,
                             agent_id=msg.sender,
-                            description=result["reason"]
+                            description=result["reason"],
+                            status=ViolationStatus(status_str)
                         ))
 
         # Commitment checks (structural checks always run; LLM claim verification skipped when skip_llm=True)
@@ -141,8 +146,15 @@ class TrustEngine:
         buyer_violations = [v for v in all_violations if v.agent_id == buyer_agent_id]
         seller_violations = [v for v in all_violations if v.agent_id == seller_agent_id]
 
-        buyer_score_val = self._compute_score(buyer_violations)
-        seller_score_val = self._compute_score(seller_violations)
+        buyer_score_raw = self._compute_score(buyer_violations)
+        seller_score_raw = self._compute_score(seller_violations)
+
+        # Apply reputation cap (penalty logic assumes base 100)
+        buyer_penalty = 100.0 - buyer_score_raw
+        buyer_score_val = max(0.0, buyer_base_score - buyer_penalty)
+
+        seller_penalty = 100.0 - seller_score_raw
+        seller_score_val = max(0.0, seller_base_score - seller_penalty)
 
         # Trend: compare first half vs second half violation rates
         buyer_trend = self._compute_trend(buyer_violations, messages, buyer_agent_id)
@@ -182,8 +194,8 @@ class TrustEngine:
     # ------------------------------------------------------------------
 
     def _compute_score(self, violations: list[Violation]) -> float:
-        """Compute 0-100 score by subtracting penalties for each violation."""
-        penalty = sum(_PENALTY_MAP.get(v.severity, 0) for v in violations)
+        """Compute 0-100 score by subtracting penalties for each violation (ignoring DISPUTED)."""
+        penalty = sum(_PENALTY_MAP.get(v.severity, 0) for v in violations if v.status != ViolationStatus.DISPUTED)
         return max(0.0, _BASE_SCORE - penalty)
 
     def _compute_trend(

@@ -34,6 +34,17 @@ class AgentRole(str, Enum):
     OBSERVER = "OBSERVER"  # e.g., the trust engine itself
 
 
+class AgentIdentity(BaseModel):
+    """Persistent agent identity and reputation data."""
+    id: str = Field(..., description="Unique identifier (UUID or stable string).")
+    role: AgentRole = Field(..., description="Primary role of this agent.")
+    name: str = Field(..., description="Human-readable name.")
+    reputation_score: float = Field(default=100.0, description="Current trust reputation (0-100).")
+    session_count: int = Field(default=0, description="Total completed sessions.")
+    created_at: datetime
+    updated_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Core negotiation message schema
 # ---------------------------------------------------------------------------
@@ -172,6 +183,8 @@ class NegotiationSession(BaseModel):
     session_id: str = Field(..., description="UUID v4 session identifier.")
     buyer_agent_id: str = Field(..., description="Unique ID of the buyer agent.")
     seller_agent_id: str = Field(..., description="Unique ID of the seller agent.")
+    buyer_identity_id: Optional[str] = Field(default=None, description="Persistent buyer identity.")
+    seller_identity_id: Optional[str] = Field(default=None, description="Persistent seller identity.")
     status: NegotiationSessionStatus = NegotiationSessionStatus.PENDING
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)

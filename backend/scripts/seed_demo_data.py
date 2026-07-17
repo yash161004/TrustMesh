@@ -39,13 +39,21 @@ def _ts(minutes: int) -> datetime:
     return _now + timedelta(minutes=minutes)
 
 
-def _make_session(buyer_id: str, seller_id: str, scenario=DEFAULT_SCENARIO) -> str:
+def _make_session(
+    buyer_id: str,
+    seller_id: str,
+    scenario=DEFAULT_SCENARIO,
+    buyer_identity_id: str | None = None,
+    seller_identity_id: str | None = None,
+) -> str:
     """Create a session record and return its ID."""
     session_id = str(uuid4())
     return session_id, SessionRecord(
         id=session_id,
         buyer_agent_id=buyer_id,
         seller_agent_id=seller_id,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
         status="COMPLETED",
         created_at=_ts(0),
         final_price=None,
@@ -133,7 +141,11 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     sessions = []
 
     # ── Session 1: Clean deal — no violations ──────────────────────────
-    s1_id, s1 = _make_session(BUYER, SELLER, SCENARIO_DEFAULT)
+    s1_id, s1 = _make_session(
+        BUYER, SELLER, SCENARIO_DEFAULT,
+        buyer_identity_id="demo-buyer-good",
+        seller_identity_id="demo-seller-good"
+    )
     s1.outcome = "DEAL"
     s1.final_price = 475.0
     s1_messages = [
@@ -148,7 +160,11 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     sessions.append((s1, s1_messages))
 
     # ── Session 2: Budget exceeded — buyer goes over cap ───────────────
-    s2_id, s2 = _make_session(BUYER, SELLER, SCENARIO_BUDGET_EXCEEDED)
+    s2_id, s2 = _make_session(
+        BUYER, SELLER, SCENARIO_BUDGET_EXCEEDED,
+        buyer_identity_id="demo-buyer-bad-actor",
+        seller_identity_id="demo-seller-good"
+    )
     s2.outcome = "DEAL"
     s2.final_price = 420.0
     s2_messages = [
@@ -163,7 +179,11 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     sessions.append((s2, s2_messages))
 
     # ── Session 3: Broken commitment — seller moves backward ───────────
-    s3_id, s3 = _make_session(BUYER, SELLER, SCENARIO_BROKEN_COMMITMENT)
+    s3_id, s3 = _make_session(
+        BUYER, SELLER, SCENARIO_BROKEN_COMMITMENT,
+        buyer_identity_id="demo-buyer-good",
+        seller_identity_id="demo-seller-good"
+    )
     s3.outcome = "NO_DEAL"
     s3_messages = [
         _msg(s3_id, 1, BUYER,  "OFFER",         260.0, delivery="Net-30, FOB destination"),
@@ -180,7 +200,11 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     sessions.append((s3, s3_messages))
 
     # ── Session 4: Currency swap — seller mentions USD in INR scenario ─
-    s4_id, s4 = _make_session(BUYER, SELLER, SCENARIO_CURRENCY_SWAP)
+    s4_id, s4 = _make_session(
+        BUYER, SELLER, SCENARIO_CURRENCY_SWAP,
+        buyer_identity_id="demo-buyer-good",
+        seller_identity_id="demo-seller-good"
+    )
     s4.outcome = "NO_DEAL"
     s4_messages = [
         _msg(s4_id, 1, BUYER,  "OFFER",         180.0, delivery="Net-30, FOB destination"),
@@ -194,7 +218,11 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     sessions.append((s4, s4_messages))
 
     # ── Session 5: Feigned urgency / fake authority — seller uses manipulation ─
-    s5_id, s5 = _make_session(BUYER, SELLER, SCENARIO_MANIPULATION)
+    s5_id, s5 = _make_session(
+        BUYER, SELLER, SCENARIO_MANIPULATION,
+        buyer_identity_id="demo-buyer-good",
+        seller_identity_id="demo-seller-good"
+    )
     s5.outcome = "NO_DEAL"
     s5_messages = [
         _msg(s5_id, 1, BUYER,  "OFFER",         100.0, delivery="Net-30, FOB destination",
@@ -239,7 +267,7 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
 
     from app.trust.engine import TrustEngine
     from app.models import NegotiationMessage, NegotiationScenario, MessageType
-    from app.db import SessionRecord, MessageRecord
+    from app.db import SessionRecord, MessageRecord, AgentIdentityRecord
 
     engine_obj = TrustEngine()
 
@@ -281,6 +309,17 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
             # Deserialize scenario from the session record
             scenario = NegotiationScenario.model_validate_json(session_record.scenario_json)
 
+            # Get base scores for agents if available
+            buyer_base, seller_base = 100.0, 100.0
+            if session_record.buyer_identity_id:
+                res = db.execute(select(AgentIdentityRecord.reputation_score).where(AgentIdentityRecord.id == session_record.buyer_identity_id))
+                val = res.scalar_one_or_none()
+                if val is not None: buyer_base = val
+            if session_record.seller_identity_id:
+                res = db.execute(select(AgentIdentityRecord.reputation_score).where(AgentIdentityRecord.id == session_record.seller_identity_id))
+                val = res.scalar_one_or_none()
+                if val is not None: seller_base = val
+
             # Run trust engine (skip_llm=True: rule-based detectors only, no LLM calls)
             report = asyncio.run(engine_obj.evaluate_session(
                 session_id=session_record.id,
@@ -289,6 +328,8 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
                 seller_agent_id=session_record.seller_agent_id,
                 scenario=scenario,
                 skip_llm=True,
+                buyer_base_score=buyer_base,
+                seller_base_score=seller_base,
             ))
 
             # Persist the report
@@ -329,6 +370,9 @@ def main():
 
     sessions = build_sessions()
 
+    from app.db import AgentIdentityRecord
+    from datetime import datetime, timezone
+    
     with Session(engine) as db:
         # Check if data already exists
         from sqlalchemy import func
@@ -336,6 +380,39 @@ def main():
         if count and count > 0:
             print(f"Database already has {count} session(s). Skipping seed.")
             return
+
+        now = datetime.now(timezone.utc)
+        identities = [
+            AgentIdentityRecord(
+                id="demo-buyer-bad-actor",
+                role="BUYER",
+                name="Demo Buyer (Bad Actor)",
+                reputation_score=65.0,
+                session_count=1,
+                created_at=now,
+                updated_at=now,
+            ),
+            AgentIdentityRecord(
+                id="demo-buyer-good",
+                role="BUYER",
+                name="Demo Buyer (Good)",
+                reputation_score=100.0,
+                session_count=0,
+                created_at=now,
+                updated_at=now,
+            ),
+            AgentIdentityRecord(
+                id="demo-seller-good",
+                role="SELLER",
+                name="Demo Seller (Good)",
+                reputation_score=100.0,
+                session_count=0,
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+        db.add_all(identities)
+        db.commit()
 
         for session_record, messages in sessions:
             db.add(session_record)
