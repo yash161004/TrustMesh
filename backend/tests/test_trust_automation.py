@@ -62,7 +62,7 @@ async def test_trust_evaluated_automatically_on_completion():
     from unittest.mock import patch, AsyncMock
     
     with patch("app.trust.detectors.manipulation.ManipulationDetector.evaluate", new_callable=AsyncMock) as mock_manipulation, \
-         patch("app.trust.detectors.commitment.CommitmentConsistencyChecker.evaluate", new_callable=AsyncMock) as mock_commitment:
+         patch("app.trust.detectors.commitments.CommitmentConsistencyChecker.evaluate", new_callable=AsyncMock) as mock_commitment:
         mock_manipulation.return_value = {"flagged": False, "trust_impact": 0, "reason": "mocked", "status": "CLEARED"}
         mock_commitment.return_value = {"flagged": False, "trust_impact": 0, "reason": "mocked", "status": "CLEARED"}
         
