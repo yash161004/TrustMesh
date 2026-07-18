@@ -1,0 +1,30 @@
+---
+import { Show } from '@clerk/astro/components';
+---
+
+<header class="flex items-center justify-between border-b border-border bg-surface-900 px-6 py-3">
+  <a href="/" class="text-lg font-bold text-gold no-underline tracking-tight">
+    TrustMesh
+  </a>
+  <nav class="flex items-center gap-5">
+    <Show when="signed-in">
+      <a href="/dashboard" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
+        Dashboard
+      </a>
+      <a href="/sign-out" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
+        Sign out
+      </a>
+    </Show>
+    <Show when="signed-out">
+      <a href="/sign-in" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
+        Sign in
+      </a>
+      <a
+        href="/sign-up"
+        class="rounded-card bg-gold px-3 py-1.5 text-sm font-medium text-surface-900 transition-colors duration-150 hover:bg-gold-hover"
+      >
+        Sign up
+      </a>
+    </Show>
+  </nav>
+</header>

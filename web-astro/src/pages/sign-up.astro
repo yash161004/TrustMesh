@@ -1,13 +1,12 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { SignUp } from '@clerk/astro/components';
 
 export const prerender = true;
 ---
 
 <Layout>
   <main class="flex min-h-[calc(100vh-57px)] items-center justify-center">
-    <h1 class="text-3xl font-bold tracking-tight text-text-primary">
-      Trust<span class="text-gold">Mesh</span>
-    </h1>
+    <SignUp />
   </main>
 </Layout>

@@ -1,0 +1,16 @@
+---
+import Layout from '../layouts/Layout.astro';
+import OrgSettings from '../components/OrgSettings';
+
+export const prerender = true;
+---
+
+<Layout title="Settings">
+  <main class="mx-auto px-6 py-page">
+    <header class="mb-6 text-center">
+      <h1 class="text-xl font-semibold tracking-tight text-text-primary">Settings</h1>
+      <p class="mt-1 text-xs text-text-secondary">Organization and account</p>
+    </header>
+    <OrgSettings client:load />
+  </main>
+</Layout>

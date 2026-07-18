@@ -1,0 +1,23 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import SessionView from '../../../components/SessionView';
+
+export const prerender = false;
+
+const { id } = Astro.params;
+if (!id) {
+  return Astro.redirect('/dashboard');
+}
+---
+
+<Layout title="Session">
+  <main class="mx-auto max-w-6xl px-6 py-page">
+    <a
+      href="/dashboard"
+      class="mb-6 inline-block text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary"
+    >
+      &larr; Back to Sessions
+    </a>
+    <SessionView client:load sessionId={id} />
+  </main>
+</Layout>
