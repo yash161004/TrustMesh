@@ -81,6 +81,10 @@ def create_app() -> FastAPI:
         
         response = await call_next(request)
         
+        user = getattr(request.state, "user", None)
+        if user:
+            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
+        
         # Log the request details with structlog so the contextvars are attached
         logger.info(
             "Request processed",

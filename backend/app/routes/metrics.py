@@ -36,7 +36,7 @@ async def get_tactics_frequency(
     user: User = Depends(require_role("admin"))
 ):
     """
-    Returns the frequency of each manipulation tactic detected.
+    Returns the frequency of each manipulation tactic/violation detected.
     Admin only. Computes by parsing TrustReportRecord JSON in-memory for MVP.
     """
     stmt = select(TrustReportRecord.report_json)
@@ -47,11 +47,11 @@ async def get_tactics_frequency(
     for report_str in reports:
         try:
             report_data = json.loads(report_str)
-            for tactic in report_data.get("detected_tactics", []):
-                name = tactic.get("name", "Unknown Tactic")
+            for violation in report_data.get("violations", []):
+                name = violation.get("violation_type", "UNKNOWN")
                 tactic_counts[name] = tactic_counts.get(name, 0) + 1
         except Exception:
-            continue
+            pass
             
     return [
         {"tactic_name": name, "frequency": count}
@@ -76,12 +76,17 @@ async def get_average_trust(
     for report_str in reports:
         try:
             report_data = json.loads(report_str)
-            score = report_data.get("overall_trust_score")
-            if score is not None:
-                total_score += float(score)
+            buyer_score = report_data.get("buyer_score", {}).get("overall_score")
+            seller_score = report_data.get("seller_score", {}).get("overall_score")
+            
+            if buyer_score is not None:
+                total_score += float(buyer_score)
+                count += 1
+            if seller_score is not None:
+                total_score += float(seller_score)
                 count += 1
         except Exception:
-            continue
+            pass
             
     avg_score = total_score / count if count > 0 else 0.0
     return {"average_trust_score": avg_score}
