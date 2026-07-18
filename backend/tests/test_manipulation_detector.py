@@ -101,8 +101,8 @@ async def test_invalid_json_fallback(detector, scenario):
         turn_number=1,
         timestamp="2026-07-16T12:00:00Z"
     )
-    result = await detector.evaluate(msg, [], scenario)
-    assert result["flagged"] is False
+    with pytest.raises(RuntimeError, match="All API calls failed for majority vote in ManipulationDetector."):
+        await detector.evaluate(msg, [], scenario)
 
 @pytest.mark.asyncio
 async def test_e2e_mock_fallback(scenario):

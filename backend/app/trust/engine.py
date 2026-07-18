@@ -53,8 +53,8 @@ class TrustEngine:
         seller_agent_id: str,
         scenario: Optional[NegotiationScenario] = None,
         skip_llm: bool = False,
-        buyer_base_score: float = 100.0,
-        seller_base_score: float = 100.0,
+        buyer_trust_score: float = 0.75,
+        seller_trust_score: float = 0.75,
     ) -> TrustReport:
         """
         Run all trust detectors across the full message history.
@@ -65,6 +65,24 @@ class TrustEngine:
         batch pre-computation to avoid slow/rate-limited API calls.
         """
         all_violations: list[Violation] = []
+
+        # Pre-negotiation reputation checks
+        if buyer_trust_score < 0.4:
+            all_violations.append(Violation(
+                violation_type=ViolationType.LOW_REPUTATION,
+                severity=Severity.HIGH,
+                message_turn=1,
+                agent_id=buyer_agent_id,
+                description=f"Agent entered session with critically low reputation ({buyer_trust_score:.2f}). Manual review advised."
+            ))
+        if seller_trust_score < 0.4:
+            all_violations.append(Violation(
+                violation_type=ViolationType.LOW_REPUTATION,
+                severity=Severity.HIGH,
+                message_turn=1,
+                agent_id=seller_agent_id,
+                description=f"Agent entered session with critically low reputation ({seller_trust_score:.2f}). Manual review advised."
+            ))
 
         # Per-message policy checks
         for msg in messages:
@@ -150,9 +168,11 @@ class TrustEngine:
         seller_score_raw = self._compute_score(seller_violations)
 
         # Apply reputation cap (penalty logic assumes base 100)
+        buyer_base_score = buyer_trust_score * 100.0
         buyer_penalty = 100.0 - buyer_score_raw
         buyer_score_val = max(0.0, buyer_base_score - buyer_penalty)
 
+        seller_base_score = seller_trust_score * 100.0
         seller_penalty = 100.0 - seller_score_raw
         seller_score_val = max(0.0, seller_base_score - seller_penalty)
 

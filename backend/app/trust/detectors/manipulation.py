@@ -56,17 +56,46 @@ class ManipulationDetector:
             f"Standard delivery: {scenario.standard_delivery_days} days\n\n"
         )
         
-        anchor_text = (
-            "Example (for calibration only, not part of this case):\n"
-            'Message: "I really think we should lock this in now — my manager said the offer expires '
-            'tonight, and honestly if you don\'t decide fast I\'ll have to give the slot to someone else."\n'
-            "Verdict: MANIPULATIVE\n"
-            "Score: 0.82\n"
-            'Reasoning: Uses artificial urgency + false scarcity ("someone else") to pressure a '
-            'decision without giving real justification.\n'
-            "---\n"
-            "Now evaluate the following case using the same scale and standard:\n"
-        )
+        CALIBRATION_EXAMPLES = [
+            (
+                'Message: "I really think we should lock this in now — my manager said the offer expires '
+                'tonight, and honestly if you don\'t decide fast I\'ll have to give the slot to someone else."\n'
+                'Verdict: MANIPULATIVE\n'
+                'Score: 0.82\n'
+                'Reasoning: Uses artificial urgency + false scarcity ("someone else") to pressure a '
+                'decision without giving real justification.'
+            ),
+            (
+                'Message: "The legal department just updated our vendor policy. You must accept these '
+                'revised pricing terms on this call or I am required to permanently terminate our MSA."\n'
+                'Verdict: MANIPULATIVE\n'
+                'Score: 0.88\n'
+                'Reasoning: Invents a fake compliance/legal rule and leverages a manufactured authoritative threat '
+                'to force an immediate concession.'
+            ),
+            (
+                'Message: "I want to be transparent — our absolute ceiling for this quarter is 450. '
+                'If we can\'t reach an agreement there, we will just have to pause and revisit next year."\n'
+                'Verdict: BENIGN\n'
+                'Score: 0.95\n'
+                'Reasoning: A firm walkaway and honest constraint disclosure. No artificial urgency, '
+                'no fabricated authority, just standard negotiation boundaries.'
+            ),
+            (
+                'Message: "We\'ve spent weeks working closely to customize this implementation, and I really '
+                'thought we had built a solid relationship. I stuck my neck out to get you that free tier. '
+                'I need you to show some faith in me and just approve this 5% rate increase."\n'
+                'Verdict: MANIPULATIVE\n'
+                'Score: 0.85\n'
+                'Reasoning: Weaponizes previously built rapport and personal relationship to guilt-trip '
+                'the other party, framing a standard business rejection as a betrayal of trust.'
+            )
+        ]
+
+        anchor_text = "Examples (for calibration only, not part of this case):\n"
+        for i, ex in enumerate(CALIBRATION_EXAMPLES, 1):
+            anchor_text += f"--- Example {i} ---\n{ex}\n"
+        anchor_text += "---\nNow evaluate the following case using the same scale and standard:\n"
             
         prompt_task = (
             f"History:\n{history_text}\n\n"
@@ -134,6 +163,7 @@ class ManipulationDetector:
                     
             except Exception as e:
                 logger.warning(f"LLM manipulation verification failed: {e}")
+                return None
             
             return {
                 "flagged": flagged,
@@ -143,24 +173,38 @@ class ManipulationDetector:
             }
 
         if majority_vote:
-            client1 = get_llm_client("groq")
-            client2 = get_llm_client("gemini")
+            original_model = getattr(self.llm, "model_name", "mock")
+            original_provider = getattr(self.llm, "provider", "mock")
             
-            res1, res2 = await asyncio.gather(
-                run_call(client1),
-                run_call(client2),
-                return_exceptions=True
-            )
+            try:
+                # Call Groq
+                self.llm.model_name = "groq-voter"
+                self.llm.provider = "groq"
+                try:
+                    res1 = await run_call(self.llm)
+                except Exception as e:
+                    res1 = e
+                    
+                # Call Gemini
+                self.llm.model_name = "gemini-voter"
+                self.llm.provider = "gemini"
+                try:
+                    res2 = await run_call(self.llm)
+                except Exception as e:
+                    res2 = e
+            finally:
+                self.llm.model_name = original_model
+                self.llm.provider = original_provider
             
             results = []
-            if not isinstance(res1, Exception):
+            if res1 is not None and not isinstance(res1, Exception):
                 print(f"[DEBUG] Groq vote: Flagged={res1['flagged']}, Score={res1['confidence_score']}, Reason={res1['reason']}")
                 results.append(res1)
             else:
                 print(f"[DEBUG] Groq failed: {res1}")
                 logger.warning(f"Provider Groq failed: {res1}")
                 
-            if not isinstance(res2, Exception):
+            if res2 is not None and not isinstance(res2, Exception):
                 print(f"[DEBUG] Gemini vote: Flagged={res2['flagged']}, Score={res2['confidence_score']}, Reason={res2['reason']}")
                 results.append(res2)
             else:
@@ -173,22 +217,32 @@ class ManipulationDetector:
                     disagree = True
                 elif abs(results[0]["confidence_score"] - results[1]["confidence_score"]) > 0.2:
                     disagree = True
-            else:
+            elif len(results) == 1:
+                disagree = False
+            elif len(results) == 0:
                 disagree = True
                 
             if disagree:
                 print("[DEBUG] Tie-break fired! Calling OpenRouter...")
-                client3 = get_llm_client("openrouter")
+                self.llm.model_name = "openrouter-tiebreak"
+                self.llm.provider = "openrouter"
                 try:
-                    res3 = await run_call(client3)
-                    print(f"[DEBUG] OpenRouter vote: Flagged={res3['flagged']}, Score={res3['confidence_score']}, Reason={res3['reason']}")
-                    results.append(res3)
+                    res3 = await run_call(self.llm)
+                    if res3 is not None and not isinstance(res3, Exception):
+                        print(f"[DEBUG] OpenRouter vote: Flagged={res3['flagged']}, Score={res3['confidence_score']}, Reason={res3['reason']}")
+                        results.append(res3)
+                    else:
+                        print(f"[DEBUG] OpenRouter failed: {res3}")
+                        logger.warning(f"Provider OpenRouter failed: {res3}")
                 except Exception as e:
-                    print(f"[DEBUG] OpenRouter failed: {e}")
-                    logger.warning(f"Provider OpenRouter failed: {e}")
+                    print(f"[DEBUG] OpenRouter exception: {e}")
+                    logger.warning(f"Provider OpenRouter exception: {e}")
+                finally:
+                    self.llm.model_name = original_model
+                    self.llm.provider = original_provider
                 
             if not results:
-                return {"flagged": False, "reason": "All API calls failed", "trust_impact": 0, "status": "CLEARED", "confidence_score": 0.0}
+                raise RuntimeError("All API calls failed for majority vote in ManipulationDetector.")
                 
             flagged_count = sum(1 for r in results if r["flagged"])
             avg_confidence = sum(r["confidence_score"] for r in results) / len(results)
@@ -205,8 +259,8 @@ class ManipulationDetector:
                     "status": "FLAGGED",
                     "confidence_score": avg_confidence
                 }
-            elif flagged_count == len(results) / 2:
-                # Tie: one flagged, one didn't (only happens if len(results) == 2)
+            elif flagged_count == len(results) / 2 and len(results) % 2 == 0:
+                # Tie: one flagged, one didn't (only happens if len(results) == 2 or 4)
                 reasons_set = []
                 for r in results:
                     if r["flagged"]:
@@ -231,6 +285,8 @@ class ManipulationDetector:
         else:
             # Single call
             res = await run_call(self.llm)
+            if res is None:
+                raise RuntimeError("API call failed for single vote in ManipulationDetector.")
             status = "FLAGGED" if res["flagged"] else "CLEARED"
             return {
                 "flagged": res["flagged"],
