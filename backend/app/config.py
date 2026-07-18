@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///./trustmesh.db"
 
+    # Clerk Authentication
+    clerk_jwks_url: str = ""
+    clerk_issuer: str = ""
+
     # CORS — stored as a raw string so pydantic-settings never tries to
     # JSON-decode it; we normalise to list in the validator below.
     allowed_origins_raw: str = ",".join(_DEFAULT_ORIGINS)
