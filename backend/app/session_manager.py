@@ -31,7 +31,12 @@ from .db import (
     save_message,
     save_session,
     update_session_status,
+    load_trust_report,
+    save_trust_report,
+    get_agent_reputation,
+    update_agent_reputation_v2,
 )
+from .trust.engine import trust_engine
 from .crypto.signing import get_public_key_b64, sign_message
 from .crypto.ledger import _GENESIS_HASH, build_entry
 from .models import (
@@ -401,6 +406,13 @@ class SessionManager:
                     session_id, turn_count,
                 )
 
+            # --- Trigger Trust Evaluation Automatically ---
+            if session.status == NegotiationSessionStatus.COMPLETED:
+                try:
+                    await self.evaluate_trust_for_session(session_id, update_reputation=True)
+                except Exception as e:
+                    logger.error(f"Failed to automatically evaluate trust for session {session_id}: {e}")
+
             return messages
 
     async def get_session(self, session_id: str) -> NegotiationSession:
@@ -532,9 +544,64 @@ class SessionManager:
         return self.sessions[session_id]
 
     def _get_agents(self, session_id: str) -> dict:
+        """Get agents for a session."""
         if session_id not in self.agents:
             raise ValueError(f"Agents for session {session_id} not found")
         return self.agents[session_id]
+
+    async def evaluate_trust_for_session(self, session_id: str, recompute: bool = False, update_reputation: bool = True) -> dict:
+        """
+        Evaluates and persists the TrustReport for a session.
+        If recompute=False, returns cached report if it exists.
+        If update_reputation=True and this is the FIRST computation, updates the live agent reputation scores.
+        """
+        await self._ensure_initialised()
+        session = await self.get_session(session_id)
+
+        # Serve cached result unless recompute is requested
+        if not recompute:
+            cached = await load_trust_report(session_id)
+            if cached:
+                return json.loads(cached["report_json"])
+
+        # Fetch identities to get the base reputation scores
+        buyer_reputation = await get_agent_reputation(session.buyer_agent_id) if session.buyer_agent_id else None
+        seller_reputation = await get_agent_reputation(session.seller_agent_id) if session.seller_agent_id else None
+        
+        buyer_trust = buyer_reputation["trust_score"] if buyer_reputation else 0.75
+        seller_trust = seller_reputation["trust_score"] if seller_reputation else 0.75
+
+        # Full recompute (slow — runs all detectors including LLM calls)
+        scenario = self.scenarios.get(session_id, DEFAULT_SCENARIO)
+        report = await trust_engine.evaluate_session(
+            session_id=session_id,
+            messages=session.messages,
+            buyer_agent_id=session.buyer_agent_id,
+            seller_agent_id=session.seller_agent_id,
+            scenario=scenario,
+            buyer_trust_score=buyer_trust,
+            seller_trust_score=seller_trust,
+        )
+
+        # Persist for future fast reads
+        await save_trust_report(
+            session_id=session_id,
+            report_json=json.dumps(report.model_dump(mode="json")),
+            evaluated_at=report.evaluated_at,
+        )
+
+        # Apply reputation update ONLY on first calculation if requested
+        if update_reputation and not recompute:
+            # Check cached again just in case there was a race condition
+            cached = await load_trust_report(session_id)
+            # Actually, save_trust_report uses UPSERT and doesn't tell us if it inserted.
+            # But we already checked `cached` at the beginning of the function.
+            if session.buyer_agent_id:
+                await update_agent_reputation_v2(session.buyer_agent_id, report.buyer_score.violation_count)
+            if session.seller_agent_id:
+                await update_agent_reputation_v2(session.seller_agent_id, report.seller_score.violation_count)
+
+        return report.model_dump(mode="json")
 
     @staticmethod
     def _dict_to_session(d: dict) -> NegotiationSession:
@@ -542,6 +609,8 @@ class SessionManager:
         from .models import NegotiationSessionStatus
         return NegotiationSession(
             session_id=d["session_id"],
+            user_id=d.get("user_id"),
+            org_id=d.get("org_id"),
             buyer_agent_id=d["buyer_agent_id"],
             seller_agent_id=d["seller_agent_id"],
             buyer_identity_id=d.get("buyer_identity_id"),

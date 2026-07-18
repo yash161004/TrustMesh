@@ -115,7 +115,7 @@ async def start_session(
     """Start a negotiation session with the buyer's initial offer."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.user_id != user.id and user.role != "admin":
+        if session.org_id != user.org_id and user.role != "admin":
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
             
         background_tasks.add_task(session_manager.start_session, session_id)
@@ -136,7 +136,7 @@ async def process_turn(
     """Process one or more negotiation turns."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.user_id != user.id and user.role != "admin":
+        if session.org_id != user.org_id and user.role != "admin":
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
 
         background_tasks.add_task(
@@ -155,7 +155,7 @@ async def get_session(session_id: str, user: User = Depends(get_current_user)):
     """Get session details by ID."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.user_id != user.id and user.role != "admin":
+        if session.org_id != user.org_id and user.role != "admin":
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         return SessionResponse(
             session_id=session.session_id,
@@ -176,7 +176,7 @@ async def get_messages(session_id: str, user: User = Depends(get_current_user)):
     """Get all messages for a negotiation session."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.user_id != user.id and user.role != "admin":
+        if session.org_id != user.org_id and user.role != "admin":
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         messages = await session_manager.get_messages(session_id)
         return messages
@@ -219,6 +219,7 @@ async def list_sessions(
 async def evaluate_trust(
     session_id: str,
     recompute: bool = Query(default=False, description="Force recompute even if cached"),
+    user: User = Depends(get_current_user)
 ):
     """
     Return trust evaluation for a session.
@@ -227,50 +228,21 @@ async def evaluate_trust(
     Pass ?recompute=true to force a fresh evaluation (slow — runs all detectors).
     """
     try:
+        # Check if session exists
         session = await session_manager.get_session(session_id)
+        if session.org_id != user.org_id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
+        
+        # Calling evaluate_trust_for_session with update_reputation=True so that
+        # if a client manually polls it first before it completes, reputation is updated once.
+        report = await session_manager.evaluate_trust_for_session(
+            session_id, 
+            recompute=recompute, 
+            update_reputation=True
+        )
+        return report
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-    # Serve cached result unless recompute is requested
-    if not recompute:
-        cached = await load_trust_report(session_id)
-        if cached:
-            return json.loads(cached["report_json"])
-
-    # Fetch identities to get the base reputation scores
-    buyer_reputation = await get_agent_reputation(session.buyer_agent_id) if session.buyer_agent_id else None
-    seller_reputation = await get_agent_reputation(session.seller_agent_id) if session.seller_agent_id else None
-    
-    buyer_trust = buyer_reputation["trust_score"] if buyer_reputation else 0.75
-    seller_trust = seller_reputation["trust_score"] if seller_reputation else 0.75
-
-    # Full recompute (slow — runs all detectors including LLM calls)
-    scenario = session_manager.scenarios.get(session_id) or DEFAULT_SCENARIO
-    report = await trust_engine.evaluate_session(
-        session_id=session_id,
-        messages=session.messages,
-        buyer_agent_id=session.buyer_agent_id,
-        seller_agent_id=session.seller_agent_id,
-        scenario=scenario,
-        buyer_trust_score=buyer_trust,
-        seller_trust_score=seller_trust,
-    )
-
-    # Persist for future fast reads
-    await save_trust_report(
-        session_id=session_id,
-        report_json=json.dumps(report.model_dump(mode="json")),
-        evaluated_at=report.evaluated_at,
-    )
-
-    # Apply reputation update ONLY on first calculation
-    if not recompute and not cached:
-        if session.buyer_agent_id:
-            await update_agent_reputation_v2(session.buyer_agent_id, report.buyer_score.violation_count)
-        if session.seller_agent_id:
-            await update_agent_reputation_v2(session.seller_agent_id, report.seller_score.violation_count)
-
-    return report.model_dump(mode="json")
 
 
 # --------------------------------------------------------------------------- #
@@ -304,10 +276,15 @@ class LedgerResponse(BaseModel):
     response_model=LedgerResponse,
     summary="Get Ledger",
 )
-async def get_ledger(session_id: str):
+async def get_ledger(
+    session_id: str,
+    user: User = Depends(get_current_user)
+):
     """Return the full hash-chained ledger for a session with chain-validity."""
     try:
-        await session_manager.get_session(session_id)
+        session = await session_manager.get_session(session_id)
+        if session.org_id != user.org_id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -340,7 +317,7 @@ async def session_websocket(
     """
     try:
         session = await session_manager.get_session(session_id)
-        if session.user_id != user.id and user.role != "admin":
+        if session.org_id != user.org_id and user.role != "admin":
             await websocket.close(code=4003, reason="Forbidden")
             return
     except ValueError:

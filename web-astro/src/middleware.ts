@@ -1,28 +1,37 @@
-﻿import { clerkMiddleware } from '@clerk/astro/server';
+import { clerkMiddleware } from '@clerk/astro/server';
 
-const protectedRoutes = ['/dashboard', '/settings', '/admin'];
+const PUBLIC_PATHS = ['/', '/sign-in', '/sign-up', '/sign-in/**', '/sign-up/**'];
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => {
+    if (p.endsWith('/**')) {
+      return pathname.startsWith(p.slice(0, -3));
+    }
+    return pathname === p;
+  });
+}
 
 export const onRequest = clerkMiddleware((auth, context, next) => {
   const url = new URL(context.request.url);
-  const isProtectedRoute = protectedRoutes.some(route => url.pathname.startsWith(route));
+  const { pathname } = url;
 
-  if (isProtectedRoute) {
-    try {
-      const authObj = auth();
-      if (!authObj.isAuthenticated) {
-        return authObj.redirectToSignIn({ returnBackUrl: url.pathname });
-      }
+  if (isPublicPath(pathname)) {
+    return next();
+  }
 
-      if (url.pathname.startsWith('/admin')) {
-        const isAdmin = authObj.has({ role: 'org:admin' });
-        if (!isAdmin) {
-          return context.redirect('/dashboard', 302);
-        }
-      }
-    } catch (err) {
-      console.error("[MIDDLEWARE] Clerk Error:", err);
-      return context.redirect('/sign-in', 302);
+  try {
+    const authObj = auth();
+    console.log(`[middleware] ${pathname} isAuthenticated=${authObj.isAuthenticated}`);
+
+    if (!authObj.isAuthenticated) {
+      return authObj.redirectToSignIn({ returnBackUrl: url.pathname });
     }
+
+    if (pathname.startsWith('/admin') && !authObj.has({ role: 'org:admin' })) {
+      return context.redirect('/dashboard');
+    }
+  } catch {
+    return context.redirect('/sign-in');
   }
 
   return next();

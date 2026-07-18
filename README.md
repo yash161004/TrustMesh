@@ -118,6 +118,7 @@ Copy `backend/.env.example` to `backend/.env` and fill in as needed:
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | For live LLM | (empty = mock) | Google Gemini API key |
 | `GROQ_API_KEY` | For live LLM | (empty = mock) | Groq API key (fallback) |
+| `OPENROUTER_API_KEY` | For live LLM | (empty = mock) | OpenRouter API key (tie-break vote) |
 | `APP_ENV` | No | `development` | `development` or `production` |
 | `APP_HOST` | No | `0.0.0.0` | Server bind host |
 | `APP_PORT` | No | `8000` | Server bind port |
