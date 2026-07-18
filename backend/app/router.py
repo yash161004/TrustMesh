@@ -4,7 +4,7 @@ TrustMesh API Routers — Phase 1: Agent Logic
 Registers all route groups. New phases will add their own routers here.
 """
 from fastapi import APIRouter
-from .routes import health, sessions, identities, webhooks, admin
+from .routes import health, sessions, identities, webhooks, admin, metrics
 
 api_router = APIRouter()
 
@@ -14,6 +14,7 @@ api_router.include_router(sessions.router, prefix="/sessions", tags=["Sessions"]
 api_router.include_router(identities.router, prefix="/identities", tags=["Identities"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 api_router.include_router(admin.router, tags=["Admin"])
+api_router.include_router(metrics.router, prefix="/metrics", tags=["Metrics"])
 
 # Phase 2+: Trust engine, ledger
 # api_router.include_router(trust.router,    prefix="/trust",    tags=["Trust"])
