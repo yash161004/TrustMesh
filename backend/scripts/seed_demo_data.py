@@ -328,8 +328,8 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
                 seller_agent_id=session_record.seller_agent_id,
                 scenario=scenario,
                 skip_llm=True,
-                buyer_base_score=buyer_base,
-                seller_base_score=seller_base,
+                buyer_trust_score=buyer_base / 100.0,
+                seller_trust_score=seller_base / 100.0,
             ))
 
             # Persist the report
