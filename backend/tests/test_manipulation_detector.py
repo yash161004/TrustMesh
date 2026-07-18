@@ -107,7 +107,8 @@ async def test_invalid_json_fallback(detector, scenario):
 @pytest.mark.asyncio
 async def test_e2e_mock_fallback(scenario):
     d = ManipulationDetector()
-    d.llm.api_key = None  # Ensure mock mode
+    from unittest.mock import AsyncMock
+    d.llm.generate = AsyncMock(return_value="{}")
     msg = NegotiationMessage(
         message_type="OFFER",
         sender="buyer",

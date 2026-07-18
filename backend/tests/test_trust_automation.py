@@ -58,9 +58,16 @@ async def test_trust_evaluated_automatically_on_completion():
     assert get_response.json()["status"] == "COMPLETED", "Session did not complete in mock."
     
     # 4. Assert TrustReportRecord exists in DB!
-    # Note: process_turn runs in a BackgroundTask. So we need to await a bit for it to finish the trust computation.
-    import asyncio
-    await asyncio.sleep(2)  # Give background task time to run evaluate_trust_for_session
+    # Mock detectors for background task
+    from unittest.mock import patch, AsyncMock
+    
+    with patch("app.trust.detectors.manipulation.ManipulationDetector.evaluate", new_callable=AsyncMock) as mock_manipulation, \
+         patch("app.trust.detectors.commitment.CommitmentConsistencyChecker.evaluate", new_callable=AsyncMock) as mock_commitment:
+        mock_manipulation.return_value = {"flagged": False, "trust_impact": 0, "reason": "mocked", "status": "CLEARED"}
+        mock_commitment.return_value = {"flagged": False, "trust_impact": 0, "reason": "mocked", "status": "CLEARED"}
+        
+        import asyncio
+        await asyncio.sleep(2)  # Give background task time to run evaluate_trust_for_session
     
     factory = get_session_factory()
     async with factory() as db:
