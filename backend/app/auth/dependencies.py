@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.db import get_session_db, User
 from app.auth.clerk import verify_jwt
+import structlog
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ async def get_current_user(
             # Fallback to a dummy admin user for testing
             user = User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
             request.state.user = user
+            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
             return user
         raise HTTPException(status_code=401, detail="Token missing")
 
@@ -57,10 +59,12 @@ async def get_current_user(
         if not auth_enforced:
             user = User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
             request.state.user = user
+            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
             return user
         raise HTTPException(status_code=404, detail="User not found")
         
     request.state.user = user
+    structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
     return user
 
 def require_role(role: str):
@@ -80,7 +84,9 @@ async def get_current_user_ws(
     
     if not token:
         if not auth_enforced:
-            return User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
+            user = User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
+            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
+            return user
         raise HTTPException(status_code=401, detail="Token missing")
 
     try:
@@ -100,4 +106,5 @@ async def get_current_user_ws(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
+    structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
     return user

@@ -38,3 +38,6 @@ pytest-asyncio>=0.24.0
 svix>=1.21.0
 # Rate limiting
 slowapi>=0.1.9
+
+structlog
+

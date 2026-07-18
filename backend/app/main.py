@@ -15,7 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .db import close_db, init_db
 from .router import api_router
+from .logging_config import setup_logging
 
+setup_logging()
 settings = get_settings()
 
 
@@ -55,6 +57,8 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     from slowapi.errors import RateLimitExceeded
     from slowapi.middleware import SlowAPIMiddleware
+    import uuid
+    import structlog
     from fastapi.responses import JSONResponse
     from fastapi import Request
     from .limiter import limiter
@@ -65,6 +69,25 @@ def create_app() -> FastAPI:
         )
         # Always add a retry-after header (dummy 60s if not extractable)
         response.headers["Retry-After"] = "60"
+        return response
+
+    logger = structlog.get_logger("api.access")
+
+    @app.middleware("http")
+    async def logging_middleware(request: Request, call_next):
+        structlog.contextvars.clear_contextvars()
+        request_id = str(uuid.uuid4())
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        
+        response = await call_next(request)
+        
+        # Log the request details with structlog so the contextvars are attached
+        logger.info(
+            "Request processed",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+        )
         return response
 
     app.state.limiter = limiter
