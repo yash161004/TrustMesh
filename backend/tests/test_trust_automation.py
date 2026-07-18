@@ -40,34 +40,29 @@ async def test_trust_evaluated_automatically_on_completion():
     assert response.status_code == 202, response.text
     
     # 3. Seller rejects, Buyer accepts (to force completion quickly)
-    # Actually, we can just POST a turn with context that makes it accept?
-    # No, we can just hit /turn and hope it finishes, or mock the agent.
-    # Since we use "mock" provider by default in tests (no API key), the mock agent usually just alternates or stops.
-    # Let's see if we can manually transition it, or just call /turn repeatedly.
-    for i in range(5):
-        turn_response = client.post(f"/api/v1/sessions/{session_id}/turn", json={"max_turns": 2}, headers=headers)
-        assert turn_response.status_code == 202, turn_response.text
-        
-        # Check if completed
-        get_response = client.get(f"/api/v1/sessions/{session_id}", headers=headers)
-        if get_response.json()["status"] == "COMPLETED":
-            break
-            
-    # Check it actually completed
-    get_response = client.get(f"/api/v1/sessions/{session_id}", headers=headers)
-    assert get_response.json()["status"] == "COMPLETED", "Session did not complete in mock."
-    
-    # 4. Assert TrustReportRecord exists in DB!
-    # Mock detectors for background task
     from unittest.mock import patch, AsyncMock
-    
     with patch("app.trust.detectors.manipulation.ManipulationDetector.evaluate", new_callable=AsyncMock) as mock_manipulation, \
          patch("app.trust.detectors.commitments.CommitmentConsistencyChecker.evaluate", new_callable=AsyncMock) as mock_commitment:
         mock_manipulation.return_value = {"flagged": False, "trust_impact": 0, "reason": "mocked", "status": "CLEARED"}
         mock_commitment.return_value = {"flagged": False, "trust_impact": 0, "reason": "mocked", "status": "CLEARED"}
         
-        import asyncio
-        await asyncio.sleep(2)  # Give background task time to run evaluate_trust_for_session
+        for i in range(5):
+            turn_response = client.post(f"/api/v1/sessions/{session_id}/turn", json={"max_turns": 2}, headers=headers)
+            assert turn_response.status_code == 202, turn_response.text
+            
+            # Check if completed
+            get_response = client.get(f"/api/v1/sessions/{session_id}", headers=headers)
+            if get_response.json()["status"] == "COMPLETED":
+                break
+                
+    # Check it actually completed
+    get_response = client.get(f"/api/v1/sessions/{session_id}", headers=headers)
+    assert get_response.json()["status"] == "COMPLETED", "Session did not complete in mock."
+    
+    # 4. Assert TrustReportRecord exists in DB!
+    # BackgroundTasks run synchronously in FastAPI TestClient upon response, but we wait just in case
+    import asyncio
+    await asyncio.sleep(0.1)
     
     factory = get_session_factory()
     async with factory() as db:
