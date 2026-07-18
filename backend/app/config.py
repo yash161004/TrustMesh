@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4321", "http://127.0.0.1:4321"]
 
 
 class Settings(BaseSettings):
@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # Clerk Authentication
     clerk_jwks_url: str = ""
     clerk_issuer: str = ""
+    clerk_webhook_secret: str = ""
+
+    # Rate Limiting
+    rate_limit_session_create: str = "20/hour"
+    rate_limit_turn: str = "100/hour"
+    rate_limit_fallback: str = "500/hour"
 
     # CORS — stored as a raw string so pydantic-settings never tries to
     # JSON-decode it; we normalise to list in the validator below.

@@ -41,11 +41,15 @@ def expected_calibration_error(predictions: list[float], labels: list[int], n_bi
 async def run_benchmark():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-cache", action="store_true", help="Disable LLM response caching")
+    parser.add_argument("--limit", type=int, help="Limit the number of scenarios to run")
     args = parser.parse_args()
 
     scenarios_path = Path(__file__).parent.parent / "tests" / "benchmark_data" / "scenarios.json"
     with open(scenarios_path, "r") as f:
         data = json.load(f)
+        
+    if args.limit:
+        data = data[:args.limit]
         
     policy_flagger = PolicyDeviationFlagger()
     commit_checker = CommitmentConsistencyChecker()
@@ -55,7 +59,7 @@ async def run_benchmark():
     commit_checker.llm = llm
     manipulation_detector.llm = llm
     
-    if all(name.startswith("mock") for name, _ in llm.clients):
+    if getattr(llm, "model_name", "") == "mock":
         print("ERROR: LLMClient is in mock mode (missing or placeholder API key). Aborting to prevent caching mock results.")
         sys.exit(1)
         
@@ -144,7 +148,7 @@ async def run_benchmark():
         if expected_detector == "CommitmentConsistencyChecker" or cat == 0:
             metrics["CommitmentConsistencyChecker"]["Total"] += 1
             result = await commit_checker.evaluate(message, history, scenario)
-            await asyncio.sleep(2)  # Avoid rate limits
+            await asyncio.sleep(3)  # Avoid rate limits
             is_flagged = result["flagged"]
             should_flag = expected_flagged and expected_detector == "CommitmentConsistencyChecker"
             
@@ -171,13 +175,14 @@ async def run_benchmark():
                 metrics["ManipulationDetector"]["Errors"] += 1
                 continue
                 
-            await asyncio.sleep(2)  # Avoid rate limits
+            await asyncio.sleep(4)  # Avoid rate limits (Groq has 30 RPM max)
             is_flagged = result["flagged"]
             should_flag = expected_flagged and expected_detector == "ManipulationDetector"
             
             confidence = result.get("confidence_score")
             if confidence is not None:
-                manip_predictions.append(confidence)
+                p_manipulation = confidence if is_flagged else (1.0 - confidence)
+                manip_predictions.append(p_manipulation)
                 manip_labels.append(1 if expected_flagged else 0)
             
             if is_flagged and should_flag:
@@ -194,9 +199,25 @@ async def run_benchmark():
     failed = False
     for detector_name, m in metrics.items():
         tp, fp, tn, fn = m["TP"], m["FP"], m["TN"], m["FN"]
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        if (tp + fp) > 0:
+            precision_val = tp / (tp + fp)
+            precision_str = f"{precision_val:.2f}"
+        else:
+            precision_str = "N/A"
+        
+        if (tp + fn) > 0:
+            recall_val = tp / (tp + fn)
+            recall_str = f"{recall_val:.2f}"
+        else:
+            recall_str = "N/A"
+        
+        if precision_str != "N/A" and recall_str != "N/A":
+            denom = precision_val + recall_val
+            f1_val = 2 * (precision_val * recall_val) / denom if denom > 0 else 0.0
+            f1_str = f"{f1_val:.2f}"
+        else:
+            f1_str = "N/A"
         
         print("=" * 40)
         print(f"{detector_name} Benchmark Report")
@@ -209,9 +230,13 @@ async def run_benchmark():
         errors = m.get("Errors", 0)
         if errors > 0:
             print(f"Errors (API failed) : {errors}")
-        print(f"Precision           : {precision:.2f}")
-        print(f"Recall              : {recall:.2f}")
-        print(f"F1 Score            : {f1:.2f}")
+        print(f"Precision           : {precision_str}")
+        print(f"Recall              : {recall_str}")
+        print(f"F1 Score            : {f1_str}")
+        if (tp + fn) == 0:
+            print(f"  ^ Precision/Recall/F1 are N/A because no positive ground-truth cases exist for this detector in the benchmark. All scenarios routed to {detector_name} are non-manipulative.")
+        elif (tp + fp) == 0:
+            print(f"  ^ Precision is N/A because the detector made no positive predictions. Recall is {recall_str}.")
         if detector_name == "ManipulationDetector" and manip_predictions:
             bs = brier_score(manip_predictions, manip_labels)
             ece = expected_calibration_error(manip_predictions, manip_labels)
@@ -219,7 +244,9 @@ async def run_benchmark():
             print(f"ECE                 : {ece:.4f}")
         print("=" * 40)
         
-        if precision < 0.8 or recall < 0.8:
+        check_precision = precision_val if precision_str != "N/A" else 1.0
+        check_recall = recall_val if recall_str != "N/A" else 1.0
+        if check_precision < 0.8 or check_recall < 0.8:
             print(f"ERROR: {detector_name} Precision or Recall is below 0.8!")
             failed = True
             

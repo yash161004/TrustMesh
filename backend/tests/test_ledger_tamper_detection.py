@@ -23,6 +23,22 @@ from sqlalchemy import select
 
 from app.crypto.ledger import _GENESIS_HASH, build_entry, verify_chain
 from app.crypto.signing import canonical_json
+from app.db import User
+from app.main import app
+from app.auth.dependencies import get_current_user
+
+from fastapi import Request
+
+def dummy_user(request: Request):
+    user = User(id="test-user-1", role="standard", org_id="test-org-1")
+    request.state.user = user
+    return user
+
+@pytest.fixture(autouse=True)
+def mock_auth():
+    app.dependency_overrides[get_current_user] = dummy_user
+    yield
+    app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------

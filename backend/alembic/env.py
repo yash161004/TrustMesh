@@ -22,7 +22,17 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.db import Base
+from app.config import get_settings
+
 target_metadata = Base.metadata
+
+# Use the environment variable if present, else fallback to settings
+db_url = os.environ.get("DATABASE_URL") or get_settings().database_url
+# Alembic's sync engine needs sync drivers, so let's adjust for Postgres if it's asyncpg
+if db_url.startswith("postgresql+asyncpg://"):
+    db_url = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+
+config.set_main_option("sqlalchemy.url", db_url)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -69,7 +79,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata,
+            render_as_batch=True
         )
 
         with context.begin_transaction():

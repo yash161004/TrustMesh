@@ -43,7 +43,19 @@ async def test_identity_routes(test_client):
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Identity not found"
 
+from app.main import app as fastapi_app
+from app.auth.dependencies import get_current_user
+from app.db import User
+
+from fastapi import Request
+
+def dummy_user(request: Request):
+    user = User(id="test-user-1", role="standard", org_id="test-org-1")
+    request.state.user = user
+    return user
+
 def test_session_creation_identity_persistence(test_client):
+    fastapi_app.dependency_overrides[get_current_user] = dummy_user
     # Create with explicit identity IDs
     resp = test_client.post("/api/v1/sessions", json={
         "provider": "mock",

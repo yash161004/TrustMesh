@@ -15,7 +15,24 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from app.db import User
+from app.auth.dependencies import get_current_user, get_current_user_ws
 
+from fastapi import Request
+
+def dummy_user(request: Request = None, ):
+    user = User(id="test-user-1", role="standard", org_id="test-org-1")
+    if request:
+        request.state.user = user
+    return user
+
+@pytest.fixture(autouse=True)
+def mock_auth():
+    from app.main import app
+    app.dependency_overrides[get_current_user] = dummy_user
+    app.dependency_overrides[get_current_user_ws] = dummy_user
+    yield
+    app.dependency_overrides.clear()
 
 @pytest.fixture
 def client():
@@ -108,3 +125,25 @@ class TestWebSocketNotFound:
                     ws.receive_json()
                 except Exception:
                     pass
+
+class TestWebSocketAuthorization:
+    def test_unauthorized_user_is_rejected(self, client, session_id):
+        """User B cannot connect to User A's websocket session."""
+        from app.auth.dependencies import get_current_user_ws
+        from app.main import app
+        from app.db import User
+
+        def dummy_user_b(request: Request = None, ):
+            user = User(id="test-user-2", role="standard", org_id="test-org-2")
+            if request:
+                request.state.user = user
+            return user
+            
+        app.dependency_overrides[get_current_user_ws] = dummy_user_b
+        
+        try:
+            with pytest.raises(Exception):
+                with client.websocket_connect(f"/api/v1/sessions/{session_id}/ws") as ws:
+                    ws.receive_json()
+        finally:
+            app.dependency_overrides.clear()

@@ -23,7 +23,7 @@ from .agents.seller import SellerAgent
 from .config import get_settings
 from .db import (
     init_db,
-    load_all_sessions,
+    list_sessions_for_org,
     load_ledger_entries,
     load_session,
     get_ledger_sequence_count,
@@ -131,33 +131,13 @@ class SessionManager:
         self._initialised = False  # Whether we've loaded from DB
 
     async def _ensure_initialised(self) -> None:
-        """Load sessions from database on first access after startup."""
+        """Initialize database connection without pre-loading all sessions into memory."""
         if self._initialised:
             return
         async with self._lock:
             if self._initialised:
                 return
             await init_db()
-            try:
-                db_sessions = await load_all_sessions()
-                for s in db_sessions:
-                    session_id = s["session_id"]
-                    self.sessions[session_id] = self._dict_to_session(s)
-                    self.session_locks[session_id] = asyncio.Lock()
-                    # Restore scenario from DB
-                    scenario = self._extract_scenario(s)
-                    self.scenarios[session_id] = scenario
-                    self.contexts[session_id] = _scenario_to_flat_context(scenario)
-                    # Recreate agents
-                    self.agents[session_id] = self._create_agent_pair(
-                        s.get("buyer_agent_id", "buyer-agent-001"),
-                        s.get("seller_agent_id", "seller-agent-001"),
-                        provider="mock",
-                        scenario=scenario,
-                    )
-                logger.info("Loaded %d session(s) from database.", len(db_sessions))
-            except Exception as e:
-                logger.warning("Could not load sessions from DB (first run?): %s", e)
             self._initialised = True
 
     def _create_agent_pair(
@@ -200,6 +180,8 @@ class SessionManager:
         scenario: Optional[NegotiationScenario] = None,
         buyer_identity_id: Optional[str] = None,
         seller_identity_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        org_id: Optional[str] = None,
     ) -> NegotiationSession:
         """Create a new negotiation session with buyer and seller agents.
 
@@ -230,6 +212,8 @@ class SessionManager:
 
         session = NegotiationSession(
             session_id=session_id,
+            user_id=user_id,
+            org_id=org_id,
             buyer_agent_id=buyer_agent_id,
             seller_agent_id=seller_agent_id,
             buyer_identity_id=buyer_identity_id,
@@ -241,6 +225,8 @@ class SessionManager:
         # Persist to SQLite
         await save_session(
             session_id=session_id,
+            user_id=user_id,
+            org_id=org_id,
             buyer_agent_id=buyer_agent_id,
             seller_agent_id=seller_agent_id,
             buyer_identity_id=buyer_identity_id,
@@ -443,24 +429,14 @@ class SessionManager:
             )
         return session
 
-    async def list_sessions(self) -> list[NegotiationSession]:
-        """List all sessions. Loads from database."""
+    async def list_sessions(self, org_id: str = None, limit: int = 50, offset: int = 0) -> list[NegotiationSession]:
+        """List sessions from database for a specific org."""
         await self._ensure_initialised()
-        db_sessions = await load_all_sessions()
+        db_sessions = await list_sessions_for_org(org_id, limit, offset)
         result = []
         for s in db_sessions:
-            sid = s["session_id"]
-            if sid in self.sessions:
-                result.append(self.sessions[sid])
-            else:
-                session = self._dict_to_session(s)
-                scenario = self._extract_scenario(s)
-                async with self._lock:
-                    self.sessions[sid] = session
-                    self.scenarios[sid] = scenario
-                    self.session_locks.setdefault(sid, asyncio.Lock())
-                    self.contexts[sid] = _scenario_to_flat_context(scenario)
-                result.append(session)
+            session = self._dict_to_session(s)
+            result.append(session)
         return result
 
     async def get_messages(self, session_id: str) -> list[NegotiationMessage]:

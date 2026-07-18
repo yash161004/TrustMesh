@@ -45,6 +45,15 @@ class AgentIdentity(BaseModel):
     updated_at: datetime
 
 
+class AgentReputation(BaseModel):
+    """Cross-session reputation layer for an agent."""
+    agent_id: str = Field(..., description="Unique agent identifier.")
+    trust_score: float = Field(default=0.75, ge=0.0, le=1.0, description="Current trust score (0.0 - 1.0).")
+    total_sessions: int = Field(default=0, description="Total number of sessions evaluated.")
+    violations_count: int = Field(default=0, description="Total number of trust violations across all sessions.")
+    last_updated: datetime
+
+
 # ---------------------------------------------------------------------------
 # Core negotiation message schema
 # ---------------------------------------------------------------------------
@@ -181,6 +190,8 @@ class NegotiationSession(BaseModel):
     Will be fleshed out in Phase 1 when agent logic is introduced.
     """
     session_id: str = Field(..., description="UUID v4 session identifier.")
+    user_id: Optional[str] = Field(default=None, description="Owner user ID.")
+    org_id: Optional[str] = Field(default=None, description="Owner organization ID.")
     buyer_agent_id: str = Field(..., description="Unique ID of the buyer agent.")
     seller_agent_id: str = Field(..., description="Unique ID of the seller agent.")
     buyer_identity_id: Optional[str] = Field(default=None, description="Persistent buyer identity.")

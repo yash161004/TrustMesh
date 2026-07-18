@@ -23,7 +23,7 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
     # Startup: initialise the database
-    await init_db()
+    import sys; sys.stderr.write('Lifespan: before init_db\n'); sys.stderr.flush(); await init_db(); sys.stderr.write('Lifespan: after init_db\n'); sys.stderr.flush()
     yield
     # Shutdown: close the database
     await close_db()
@@ -53,6 +53,24 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     # Middleware
     # ------------------------------------------------------------------
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+    from fastapi.responses import JSONResponse
+    from fastapi import Request
+    from .limiter import limiter
+
+    async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        response = JSONResponse(
+            {"detail": f"Rate limit exceeded: {exc.detail}"}, status_code=429
+        )
+        # Always add a retry-after header (dummy 60s if not extractable)
+        response.headers["Retry-After"] = "60"
+        return response
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
+    app.add_middleware(SlowAPIMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,

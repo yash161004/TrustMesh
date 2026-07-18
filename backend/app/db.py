@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import json
+import uuid
 
 from sqlalchemy import (
     Column,
@@ -48,6 +49,31 @@ class Base(DeclarativeBase):
 # ORM Models
 # ---------------------------------------------------------------------------
 
+class Organization(Base):
+    """SaaS Organization / Tenant."""
+    __tablename__ = "organizations"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False)
+    clerk_org_id = Column(String(128), unique=True, nullable=False)
+    plan_tier = Column(String(50), nullable=False, default="free")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class User(Base):
+    """SaaS User."""
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clerk_user_id = Column(String(128), unique=True, nullable=False)
+    email = Column(String(255), nullable=False)
+    org_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
+    role = Column(String(50), nullable=False, default="standard")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization")
+
+
 
 class AgentIdentityRecord(Base):
     """Persistent identity and reputation for agents across sessions."""
@@ -62,12 +88,25 @@ class AgentIdentityRecord(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
 
+class AgentReputationRecord(Base):
+    """Cross-session reputation layer for an agent."""
+    __tablename__ = "agent_reputations"
+
+    agent_id = Column(String(128), primary_key=True)
+    trust_score = Column(Float, nullable=False, default=0.75)
+    total_sessions = Column(Integer, nullable=False, default=0)
+    violations_count = Column(Integer, nullable=False, default=0)
+    last_updated = Column(DateTime(timezone=True), nullable=False)
+
+
 class SessionRecord(Base):
     """Persistent storage for negotiation sessions."""
 
     __tablename__ = "negotiation_sessions"
 
     id = Column(String(36), primary_key=True)  # UUID
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    org_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
     buyer_agent_id = Column(String(128), nullable=False)
     seller_agent_id = Column(String(128), nullable=False)
     buyer_identity_id = Column(String(36), nullable=True)
@@ -164,58 +203,63 @@ async def init_db() -> None:
     database_url = settings.database_url
 
     # aiosqlite driver requires sqlite+aiosqlite:// prefix
-    if database_url.startswith("sqlite+aiosqlite://"):
-        connect_url = database_url
-    elif database_url.startswith("sqlite://"):
+    if database_url.startswith("sqlite://") and "aiosqlite" not in database_url:
         connect_url = database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    elif database_url.startswith("postgresql://"):
+        connect_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     else:
         connect_url = database_url
 
-    _async_engine = create_async_engine(connect_url, echo=False)
+    _async_engine = create_async_engine(
+        connect_url, 
+        echo=False,
+        connect_args={"prepared_statement_cache_size": 0} if "asyncpg" in connect_url else {}
+    )
 
     # Create tables
     async with _async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Migration: add scenario_json column if the table already exists without it
-    async with _async_engine.begin() as conn:
-        # Check if column exists
-        result = await conn.execute(
-            text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='scenario_json'")
-        )
-        row = result.one()
-        if row.cnt == 0:
-            await conn.execute(
-                text("ALTER TABLE negotiation_sessions ADD COLUMN scenario_json TEXT")
+    if _async_engine.dialect.name == "sqlite":
+        # Migration: add scenario_json column if the table already exists without it
+        async with _async_engine.begin() as conn:
+            # Check if column exists
+            result = await conn.execute(
+                text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='scenario_json'")
             )
-            logger.info("Added scenario_json column to negotiation_sessions.")
+            row = result.one()
+            if row.cnt == 0:
+                await conn.execute(
+                    text("ALTER TABLE negotiation_sessions ADD COLUMN scenario_json TEXT")
+                )
+                logger.info("Added scenario_json column to negotiation_sessions.")
 
-    # Migration: add signer_public_key column if the table already exists without it
-    async with _async_engine.begin() as conn:
-        result = await conn.execute(
-            text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_messages') WHERE name='signer_public_key'")
-        )
-        row = result.one()
-        if row.cnt == 0:
-            await conn.execute(
-                text("ALTER TABLE negotiation_messages ADD COLUMN signer_public_key TEXT")
+        # Migration: add signer_public_key column if the table already exists without it
+        async with _async_engine.begin() as conn:
+            result = await conn.execute(
+                text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_messages') WHERE name='signer_public_key'")
             )
-            logger.info("Added signer_public_key column to negotiation_messages.")
+            row = result.one()
+            if row.cnt == 0:
+                await conn.execute(
+                    text("ALTER TABLE negotiation_messages ADD COLUMN signer_public_key TEXT")
+                )
+                logger.info("Added signer_public_key column to negotiation_messages.")
 
-    # Migration: add identity foreign keys if missing
-    async with _async_engine.begin() as conn:
-        result = await conn.execute(
-            text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='buyer_identity_id'")
-        )
-        row = result.one()
-        if row.cnt == 0:
-            await conn.execute(
-                text("ALTER TABLE negotiation_sessions ADD COLUMN buyer_identity_id TEXT")
+        # Migration: add identity foreign keys if missing
+        async with _async_engine.begin() as conn:
+            result = await conn.execute(
+                text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='buyer_identity_id'")
             )
-            await conn.execute(
-                text("ALTER TABLE negotiation_sessions ADD COLUMN seller_identity_id TEXT")
-            )
-            logger.info("Added identity foreign keys to negotiation_sessions.")
+            row = result.one()
+            if row.cnt == 0:
+                await conn.execute(
+                    text("ALTER TABLE negotiation_sessions ADD COLUMN buyer_identity_id TEXT")
+                )
+                await conn.execute(
+                    text("ALTER TABLE negotiation_sessions ADD COLUMN seller_identity_id TEXT")
+                )
+                logger.info("Added identity foreign keys to negotiation_sessions.")
 
     _async_session_factory = async_sessionmaker(
         _async_engine, class_=AsyncSession, expire_on_commit=False
@@ -259,6 +303,38 @@ async def init_db() -> None:
             await db.commit()
             logger.info("Seeded initial agent identities.")
 
+    # Seed Agent Reputations
+    async with _async_session_factory() as db:
+        result = await db.execute(select(AgentReputationRecord).limit(1))
+        if result.scalar_one_or_none() is None:
+            now = datetime.now(timezone.utc)
+            reputations = [
+                AgentReputationRecord(
+                    agent_id="demo-buyer-bad-actor",
+                    trust_score=0.3,  # Pre-degraded for testing
+                    total_sessions=3,
+                    violations_count=5,
+                    last_updated=now,
+                ),
+                AgentReputationRecord(
+                    agent_id="demo-buyer-good",
+                    trust_score=0.75,
+                    total_sessions=0,
+                    violations_count=0,
+                    last_updated=now,
+                ),
+                AgentReputationRecord(
+                    agent_id="demo-seller-good",
+                    trust_score=0.75,
+                    total_sessions=0,
+                    violations_count=0,
+                    last_updated=now,
+                ),
+            ]
+            db.add_all(reputations)
+            await db.commit()
+            logger.info("Seeded initial agent reputations.")
+
     _db_initialised = True
     logger.info("Database initialised: %s", database_url)
 
@@ -274,10 +350,16 @@ async def close_db() -> None:
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Return the async session factory (must call init_db first)."""
+    """Return the configured async session factory."""
     if _async_session_factory is None:
         raise RuntimeError("Database not initialised. Call init_db() first.")
     return _async_session_factory
+
+async def get_session_db():
+    """FastAPI dependency that provides an async DB session."""
+    factory = get_session_factory()
+    async with factory() as session:
+        yield session
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +378,8 @@ async def save_session(
     final_price: Optional[float] = None,
     outcome: Optional[str] = None,
     scenario_json: Optional[str] = None,
+    user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> None:
     """Insert or update a session record."""
     factory = get_session_factory()
@@ -314,9 +398,15 @@ async def save_session(
                 existing.seller_identity_id = seller_identity_id
             if scenario_json is not None:
                 existing.scenario_json = scenario_json
+            if user_id is not None:
+                existing.user_id = user_id
+            if org_id is not None:
+                existing.org_id = org_id
         else:
-            record = SessionRecord(
+            new_session = SessionRecord(
                 id=session_id,
+                user_id=user_id,
+                org_id=org_id,
                 buyer_agent_id=buyer_agent_id,
                 seller_agent_id=seller_agent_id,
                 buyer_identity_id=buyer_identity_id,
@@ -327,7 +417,7 @@ async def save_session(
                 outcome=outcome,
                 scenario_json=scenario_json,
             )
-            db.add(record)
+            db.add(new_session)
         await db.commit()
 
 
@@ -382,17 +472,22 @@ async def load_session(session_id: str) -> Optional[dict]:
         return _session_record_to_dict(record)
 
 
-async def load_all_sessions() -> list[dict]:
-    """Load all sessions with their messages."""
+from sqlalchemy.orm import selectinload
+
+async def list_sessions_for_org(org_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
+    """Load sessions for a specific org, with pagination."""
     factory = get_session_factory()
     async with factory() as db:
-        result = await db.execute(
-            select(SessionRecord)
-            .options(joinedload(SessionRecord.messages))
-            .order_by(SessionRecord.created_at.desc())
-        )
-        # Use unique() because joinedload can cause duplicate rows
-        records = result.unique().scalars().all()
+        # If org_id is provided, filter by it. If None, it might be an admin fetching all.
+        stmt = select(SessionRecord).options(selectinload(SessionRecord.messages))
+        
+        if org_id:
+            stmt = stmt.where(SessionRecord.org_id == org_id)
+            
+        stmt = stmt.order_by(SessionRecord.created_at.desc()).limit(limit).offset(offset)
+        
+        result = await db.execute(stmt)
+        records = result.scalars().all()
         return [_session_record_to_dict(r) for r in records]
 
 
@@ -437,6 +532,8 @@ async def update_session_status(
 def _session_record_to_dict(record: SessionRecord) -> dict:
     return {
         "session_id": record.id,
+        "user_id": record.user_id,
+        "org_id": record.org_id,
         "buyer_agent_id": record.buyer_agent_id,
         "seller_agent_id": record.seller_agent_id,
         "buyer_identity_id": record.buyer_identity_id,
@@ -651,3 +748,70 @@ async def update_agent_reputation(identity_id: str, session_final_score: float) 
                 "Updated reputation for %s to %.2f (session_count: %d)",
                 identity_id, new_reputation, record.session_count
             )
+
+async def get_agent_reputation(agent_id: str) -> dict:
+    """Load an AgentReputation by ID, or return default values if missing."""
+    if not agent_id:
+        raise ValueError("Agent ID is required")
+        
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentReputationRecord).where(AgentReputationRecord.agent_id == agent_id)
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            # Return default representation
+            now = datetime.now(timezone.utc)
+            return {
+                "agent_id": agent_id,
+                "trust_score": 0.75,
+                "total_sessions": 0,
+                "violations_count": 0,
+                "last_updated": now,
+            }
+        return {
+            "agent_id": record.agent_id,
+            "trust_score": record.trust_score,
+            "total_sessions": record.total_sessions,
+            "violations_count": record.violations_count,
+            "last_updated": record.last_updated,
+        }
+
+async def update_agent_reputation_v2(agent_id: str, session_violations: int) -> None:
+    """Update cross-session agent reputation using flat penalty or slow recovery."""
+    if not agent_id:
+        return
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentReputationRecord).where(AgentReputationRecord.agent_id == agent_id)
+        )
+        record = result.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+        
+        if record is None:
+            record = AgentReputationRecord(
+                agent_id=agent_id,
+                trust_score=0.75,
+                total_sessions=0,
+                violations_count=0,
+                last_updated=now,
+            )
+            db.add(record)
+            
+        if session_violations > 0:
+            # Flat penalty per session with violations
+            record.trust_score = max(0.0, record.trust_score - 0.1)
+        else:
+            # Clean session -> slow recovery
+            record.trust_score = min(1.0, record.trust_score + 0.02)
+            
+        record.total_sessions += 1
+        record.violations_count += session_violations
+        record.last_updated = now
+        await db.commit()
+        logger.info(
+            "Updated v2 reputation for %s to %.2f (total_sessions: %d, violations_count: %d)",
+            agent_id, record.trust_score, record.total_sessions, record.violations_count
+        )

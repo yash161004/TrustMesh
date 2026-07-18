@@ -118,7 +118,8 @@ async def run_holdout():
         
         confidence = result.get("confidence_score")
         if confidence is not None:
-            predictions.append(confidence)
+            p_manipulation = confidence if is_flagged else (1.0 - confidence)
+            predictions.append(p_manipulation)
             labels.append(1 if expected_flagged else 0)
         
         if is_flagged and should_flag:
@@ -133,9 +134,25 @@ async def run_holdout():
             print(f"[FN] Holdout: {item['name']}")
 
     tp, fp, tn, fn = metrics["TP"], metrics["FP"], metrics["TN"], metrics["FN"]
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    
+    if (tp + fp) > 0:
+        precision_val = tp / (tp + fp)
+        precision_str = f"{precision_val:.2f}"
+    else:
+        precision_str = "N/A"
+    
+    if (tp + fn) > 0:
+        recall_val = tp / (tp + fn)
+        recall_str = f"{recall_val:.2f}"
+    else:
+        recall_str = "N/A"
+    
+    if precision_str != "N/A" and recall_str != "N/A":
+        denom = precision_val + recall_val
+        f1_val = 2 * (precision_val * recall_val) / denom if denom > 0 else 0.0
+        f1_str = f"{f1_val:.2f}"
+    else:
+        f1_str = "N/A"
     
     print("=" * 40)
     print("ManipulationDetector Holdout Report")
@@ -145,9 +162,13 @@ async def run_holdout():
     print(f"False Positives     : {fp}")
     print(f"True Negatives      : {tn}")
     print(f"False Negatives     : {fn}")
-    print(f"Precision           : {precision:.2f}")
-    print(f"Recall              : {recall:.2f}")
-    print(f"F1 Score            : {f1:.2f}")
+    print(f"Precision           : {precision_str}")
+    print(f"Recall              : {recall_str}")
+    print(f"F1 Score            : {f1_str}")
+    if (tp + fn) == 0:
+        print(f"  ^ Precision/Recall/F1 are N/A because no positive ground-truth cases exist in this holdout set.")
+    elif (tp + fp) == 0:
+        print(f"  ^ Precision is N/A because the detector made no positive predictions. Recall is {recall_str}.")
     if predictions:
         bs = brier_score(predictions, labels)
         ece = expected_calibration_error(predictions, labels)

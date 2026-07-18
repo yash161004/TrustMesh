@@ -6,7 +6,19 @@ def test_health_endpoint(test_client):
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
+from app.auth.dependencies import get_current_user
+from app.db import User
+
+from fastapi import Request
+
+def dummy_user(request: Request):
+    user = User(id="test-user-1", role="standard", org_id="test-org-1")
+    request.state.user = user
+    return user
+
 def test_session_endpoints(test_client):
+    app.dependency_overrides[get_current_user] = dummy_user
+    
     # Create
     resp = test_client.post("/api/v1/sessions", json={"provider": "mock"})
     assert resp.status_code == 200
@@ -16,11 +28,11 @@ def test_session_endpoints(test_client):
 
     # Start
     start_resp = test_client.post(f"/api/v1/sessions/{session_id}/start")
-    assert start_resp.status_code == 200
+    assert start_resp.status_code == 202
 
     # Turn
     turn_resp = test_client.post(f"/api/v1/sessions/{session_id}/turn", json={"max_turns": 1})
-    assert turn_resp.status_code == 200
+    assert turn_resp.status_code == 202
 
     # List messages
     msgs_resp = test_client.get(f"/api/v1/sessions/{session_id}/messages")

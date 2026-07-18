@@ -11,15 +11,20 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
 from pydantic import BaseModel, Field
 
+from ..auth.dependencies import get_current_user, get_current_user_ws
+from ..config import get_settings
 from ..crypto.ledger import verify_chain
-from ..db import load_ledger_entries, load_trust_report, save_trust_report, get_agent_identity, update_agent_reputation
+from ..db import User, load_ledger_entries, load_trust_report, save_trust_report, get_agent_reputation, update_agent_reputation_v2
+from ..limiter import limiter
 from ..models import NegotiationMessage, NegotiationScenario, NegotiationSession, NegotiationSessionStatus, DEFAULT_SCENARIO
 from ..session_manager import session_manager, ws_manager
 from ..trust.engine import trust_engine
 from ..trust.models import TrustReport
+
+settings = get_settings()
 
 router = APIRouter()
 
@@ -73,16 +78,19 @@ class TurnResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 
 @router.post("", response_model=SessionResponse, summary="Create Session")
-async def create_session(request: CreateSessionRequest):
+@limiter.limit(settings.rate_limit_session_create)
+async def create_session(request: Request, payload: CreateSessionRequest, user: User = Depends(get_current_user)):
     """Create a new negotiation session between buyer and seller agents."""
     session = await session_manager.create_session(
-        buyer_agent_id=request.buyer_agent_id,
-        seller_agent_id=request.seller_agent_id,
-        initial_context=request.initial_context,
-        provider=request.provider,
-        scenario=request.scenario,
-        buyer_identity_id=request.buyer_identity_id,
-        seller_identity_id=request.seller_identity_id,
+        buyer_agent_id=payload.buyer_agent_id,
+        seller_agent_id=payload.seller_agent_id,
+        initial_context=payload.initial_context,
+        provider=payload.provider,
+        scenario=payload.scenario,
+        buyer_identity_id=payload.buyer_identity_id,
+        seller_identity_id=payload.seller_identity_id,
+        user_id=user.id,
+        org_id=user.org_id,
     )
     return SessionResponse(
         session_id=session.session_id,
@@ -96,41 +104,59 @@ async def create_session(request: CreateSessionRequest):
     )
 
 
-@router.post("/{session_id}/start", response_model=NegotiationMessage, summary="Start Session")
-async def start_session(session_id: str):
+@router.post("/{session_id}/start", status_code=202, summary="Start Session")
+@limiter.limit(settings.rate_limit_turn)
+async def start_session(
+    request: Request,
+    session_id: str, 
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user)
+):
     """Start a negotiation session with the buyer's initial offer."""
     try:
-        message = await session_manager.start_session(session_id)
-        return message
+        session = await session_manager.get_session(session_id)
+        if session.user_id != user.id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
+            
+        background_tasks.add_task(session_manager.start_session, session_id)
+        return {"status": "accepted", "message": "Session start queued", "session_id": session_id}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/{session_id}/turn", response_model=TurnResponse, summary="Process Turn")
-async def process_turn(session_id: str, request: TurnRequest):
+@router.post("/{session_id}/turn", status_code=202, summary="Process Turn")
+@limiter.limit(settings.rate_limit_turn)
+async def process_turn(
+    request: Request,
+    session_id: str, 
+    turn_request: TurnRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user)
+):
     """Process one or more negotiation turns."""
     try:
-        messages = await session_manager.process_turn(
-            session_id,
-            context=request.context,
-            max_turns=request.max_turns,
-        )
         session = await session_manager.get_session(session_id)
-        return TurnResponse(
-            session_id=session_id,
-            status=session.status.value,
-            messages=messages,
-            total_messages=len(session.messages),
+        if session.user_id != user.id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
+
+        background_tasks.add_task(
+            session_manager.process_turn,
+            session_id,
+            context=turn_request.context,
+            max_turns=turn_request.max_turns,
         )
+        return {"status": "accepted", "message": "Turn processing queued", "session_id": session_id}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/{session_id}", response_model=SessionResponse, summary="Get Session")
-async def get_session(session_id: str):
+async def get_session(session_id: str, user: User = Depends(get_current_user)):
     """Get session details by ID."""
     try:
         session = await session_manager.get_session(session_id)
+        if session.user_id != user.id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         return SessionResponse(
             session_id=session.session_id,
             buyer_agent_id=session.buyer_agent_id,
@@ -146,9 +172,12 @@ async def get_session(session_id: str):
 
 
 @router.get("/{session_id}/messages", response_model=list[NegotiationMessage], summary="Get Messages")
-async def get_messages(session_id: str):
+async def get_messages(session_id: str, user: User = Depends(get_current_user)):
     """Get all messages for a negotiation session."""
     try:
+        session = await session_manager.get_session(session_id)
+        if session.user_id != user.id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         messages = await session_manager.get_messages(session_id)
         return messages
     except ValueError as e:
@@ -156,9 +185,13 @@ async def get_messages(session_id: str):
 
 
 @router.get("", response_model=list[SessionResponse], summary="List Sessions")
-async def list_sessions():
-    """List all negotiation sessions."""
-    sessions = await session_manager.list_sessions()
+async def list_sessions(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user)
+):
+    """List all negotiation sessions for the current organization."""
+    sessions = await session_manager.list_sessions(org_id=user.org_id, limit=limit, offset=offset)
     return [
         SessionResponse(
             session_id=s.session_id,
@@ -202,15 +235,14 @@ async def evaluate_trust(
     if not recompute:
         cached = await load_trust_report(session_id)
         if cached:
-            import json
             return json.loads(cached["report_json"])
 
     # Fetch identities to get the base reputation scores
-    buyer_identity = await get_agent_identity(session.buyer_identity_id) if session.buyer_identity_id else None
-    seller_identity = await get_agent_identity(session.seller_identity_id) if session.seller_identity_id else None
+    buyer_reputation = await get_agent_reputation(session.buyer_agent_id) if session.buyer_agent_id else None
+    seller_reputation = await get_agent_reputation(session.seller_agent_id) if session.seller_agent_id else None
     
-    buyer_base = buyer_identity["reputation_score"] if buyer_identity else 100.0
-    seller_base = seller_identity["reputation_score"] if seller_identity else 100.0
+    buyer_trust = buyer_reputation["trust_score"] if buyer_reputation else 0.75
+    seller_trust = seller_reputation["trust_score"] if seller_reputation else 0.75
 
     # Full recompute (slow — runs all detectors including LLM calls)
     scenario = session_manager.scenarios.get(session_id) or DEFAULT_SCENARIO
@@ -220,8 +252,8 @@ async def evaluate_trust(
         buyer_agent_id=session.buyer_agent_id,
         seller_agent_id=session.seller_agent_id,
         scenario=scenario,
-        buyer_base_score=buyer_base,
-        seller_base_score=seller_base,
+        buyer_trust_score=buyer_trust,
+        seller_trust_score=seller_trust,
     )
 
     # Persist for future fast reads
@@ -233,10 +265,10 @@ async def evaluate_trust(
 
     # Apply reputation update ONLY on first calculation
     if not recompute and not cached:
-        if session.buyer_identity_id:
-            await update_agent_reputation(session.buyer_identity_id, report.buyer_score.overall_score)
-        if session.seller_identity_id:
-            await update_agent_reputation(session.seller_identity_id, report.seller_score.overall_score)
+        if session.buyer_agent_id:
+            await update_agent_reputation_v2(session.buyer_agent_id, report.buyer_score.violation_count)
+        if session.seller_agent_id:
+            await update_agent_reputation_v2(session.seller_agent_id, report.seller_score.violation_count)
 
     return report.model_dump(mode="json")
 
@@ -293,17 +325,24 @@ async def get_ledger(session_id: str):
 # --------------------------------------------------------------------------- #
 # Phase 4: WebSocket live stream
 # --------------------------------------------------------------------------- #
-
+from ..auth.dependencies import get_current_user, get_current_user_ws
 
 @router.websocket("/{session_id}/ws")
-async def session_websocket(websocket: WebSocket, session_id: str):
+async def session_websocket(
+    websocket: WebSocket, 
+    session_id: str,
+    user: User = Depends(get_current_user_ws)
+):
     """Live WebSocket stream for a negotiation session.
 
     On connect: sends full message history, then live updates as new
     messages are persisted.  Handles disconnects gracefully.
     """
     try:
-        await session_manager.get_session(session_id)
+        session = await session_manager.get_session(session_id)
+        if session.user_id != user.id and user.role != "admin":
+            await websocket.close(code=4003, reason="Forbidden")
+            return
     except ValueError:
         await websocket.close(code=4004, reason="Session not found")
         return
