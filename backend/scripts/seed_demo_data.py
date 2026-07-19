@@ -1,8 +1,9 @@
 """
 TrustMesh Demo Seed Script
 
-Populates the database with 3-4 realistic negotiation sessions so the
+Populates the database with realistic negotiation sessions so the
 dashboard shows populated trust scores and a real ledger instantly.
+NOTE: orgA, orgB, and orgC are synthetic backfilled seed data to populate the demo with realistic multi-tenant volume, not live customer organizations.
 
 Usage:
     cd backend
@@ -381,38 +382,43 @@ def main():
             print(f"Database already has {count} session(s). Skipping seed.")
             return
 
-        now = datetime.now(timezone.utc)
-        identities = [
-            AgentIdentityRecord(
-                id="demo-buyer-bad-actor",
-                role="BUYER",
-                name="Demo Buyer (Bad Actor)",
-                reputation_score=65.0,
-                session_count=1,
-                created_at=now,
-                updated_at=now,
-            ),
-            AgentIdentityRecord(
-                id="demo-buyer-good",
-                role="BUYER",
-                name="Demo Buyer (Good)",
-                reputation_score=100.0,
-                session_count=0,
-                created_at=now,
-                updated_at=now,
-            ),
-            AgentIdentityRecord(
-                id="demo-seller-good",
-                role="SELLER",
-                name="Demo Seller (Good)",
-                reputation_score=100.0,
-                session_count=0,
-                created_at=now,
-                updated_at=now,
-            ),
-        ]
-        db.add_all(identities)
-        db.commit()
+        # Check if identities already seeded (backend init_db does it too)
+        existing_ids = {
+            r.id for r in db.query(AgentIdentityRecord.id).all()
+        }
+        if not existing_ids:
+            now = datetime.now(timezone.utc)
+            identities = [
+                AgentIdentityRecord(
+                    id="demo-buyer-bad-actor",
+                    role="BUYER",
+                    name="Demo Buyer (Bad Actor)",
+                    reputation_score=65.0,
+                    session_count=1,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                AgentIdentityRecord(
+                    id="demo-buyer-good",
+                    role="BUYER",
+                    name="Demo Buyer (Good)",
+                    reputation_score=100.0,
+                    session_count=0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                AgentIdentityRecord(
+                    id="demo-seller-good",
+                    role="SELLER",
+                    name="Demo Seller (Good)",
+                    reputation_score=100.0,
+                    session_count=0,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+            db.add_all(identities)
+            db.commit()
 
         for session_record, messages in sessions:
             db.add(session_record)

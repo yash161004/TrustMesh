@@ -1,31 +1,49 @@
 @import "tailwindcss";
 
 @theme {
-  /* ── Surface & background (near-monochrome gray) ── */
+  /* ── Original Variables (Preserved for existing components) ── */
   --color-surface-900: #0a0e1a;
   --color-surface-850: #111627;
   --color-surface-800: #181e30;
   --color-surface-750: #1f2640;
   --color-surface-700: #2a3250;
-
-  /* ── Single accent (warm gold, used sparingly) ── */
   --color-gold: #c9a96e;
   --color-gold-hover: #b8944c;
   --color-gold-dim: #8a6f32;
-
-  /* ── Status dots (subdued — no bright badges) ── */
   --color-dot-active: #6a8a6a;
   --color-dot-flagged: #8a5a5a;
   --color-dot-completed: #5a6a7a;
-
-  /* ── Text ── */
   --color-text-primary: #e8eaf0;
   --color-text-secondary: #8d93ab;
   --color-text-muted: #8389a3;
-
-  /* ── Borders (single restrained style) ── */
   --color-border: #262e48;
   --color-border-hover: #36406a;
+
+  /* ── Phase A: Public Pages (Stripe-style: Light, Vibrant) ── */
+  --color-public-bg: #f7f9fc;
+  --color-public-surface: #ffffff;
+  --color-public-text-primary: #111827;
+  --color-public-text-secondary: #4b5563;
+  --color-public-brand: #6366f1;
+  --color-public-brand-hover: #4f46e5;
+  --color-public-accent-gradient-from: #3b82f6;
+  --color-public-accent-gradient-to: #8b5cf6;
+  --color-public-border: #e5e7eb;
+
+  /* ── Phase A: Dashboard (Linear/Vercel: Dark precision) ── */
+  --color-dash-bg: #000000;
+  --color-dash-surface: #0a0a0a;
+  --color-dash-surface-elevated: #111111;
+  --color-dash-text-primary: #ededed;
+  --color-dash-text-secondary: #a1a1aa;
+  --color-dash-accent: #3b82f6;
+  --color-dash-border: #27272a;
+  --color-dash-border-hover: #3f3f46;
+  
+  /* Phase A: Shared Status Colors */
+  --color-status-success: #10b981;
+  --color-status-warning: #f59e0b;
+  --color-status-danger: #ef4444;
 
   /* ── Font family ── */
   --font-family-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -39,14 +57,17 @@
   --font-size-xl: 1.25rem;
   --font-size-2xl: 1.5rem;
   --font-size-3xl: 1.875rem;
+  --font-size-4xl: 2.25rem;
+  --font-size-5xl: 3rem;
 
   /* ── Spacing ── */
   --spacing-page: 2rem;
   --spacing-card: 1.5rem;
   --spacing-panel: 1rem;
 
-  /* ── Border radius (single consistent radius) ── */
+  /* ── Border radius ── */
   --radius-card: 0.5rem;
+  --radius-pill: 9999px;
 }
 
 @layer base {

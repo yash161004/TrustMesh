@@ -14,6 +14,21 @@ from sqlalchemy import select
 
 from fastapi import Request
 
+def _system_user() -> User:
+    """Return the system-level fallback user for development / screenshot mode."""
+    return User(
+        id="system-user-000",
+        clerk_user_id="system-clerk-000",
+        email="system@trustmesh.test",
+        role="admin",
+        org_id="system-org-000",
+    )
+
+
+def _auth_enforced() -> bool:
+    return os.environ.get("AUTH_ENFORCED", "true").lower() == "true"
+
+
 async def get_current_user(
     request: Request,
     authorization: Optional[str] = Header(None),
@@ -22,17 +37,15 @@ async def get_current_user(
     """
     Dependency to get the current authenticated user from Clerk JWT.
     It expects an 'Authorization: Bearer <token>' header.
-    If AUTH_ENFORCED=false, falls back to a dummy system user when no token is provided.
+    If AUTH_ENFORCED=false, falls back to a dummy system user.
     """
-    auth_enforced = os.environ.get("AUTH_ENFORCED", "true").lower() == "true"
-    
+    if not _auth_enforced():
+        user = _system_user()
+        request.state.user = user
+        structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
+        return user
+
     if not authorization:
-        if not auth_enforced:
-            # Fallback to a dummy admin user for testing
-            user = User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
-            request.state.user = user
-            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
-            return user
         raise HTTPException(status_code=401, detail="Token missing")
 
     if not authorization.lower().startswith("bearer "):
@@ -56,16 +69,12 @@ async def get_current_user(
     user = result.scalar_one_or_none()
 
     if not user:
-        if not auth_enforced:
-            user = User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
-            request.state.user = user
-            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
-            return user
         raise HTTPException(status_code=404, detail="User not found")
         
     request.state.user = user
     structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
     return user
+
 
 def require_role(role: str):
     async def checker(user: User = Depends(get_current_user)):
@@ -73,6 +82,8 @@ def require_role(role: str):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return checker
+
+
 async def get_current_user_ws(
     token: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_session_db)
@@ -80,13 +91,10 @@ async def get_current_user_ws(
     """
     Dependency to get the current authenticated user for WebSockets via query parameter.
     """
-    auth_enforced = os.environ.get("AUTH_ENFORCED", "true").lower() == "true"
-    
+    if not _auth_enforced():
+        return _system_user()
+
     if not token:
-        if not auth_enforced:
-            user = User(id="system-user-000", clerk_user_id="system-clerk-000", email="system@trustmesh.test", role="admin", org_id="system-org-000")
-            structlog.contextvars.bind_contextvars(user_id=user.id, org_id=user.org_id)
-            return user
         raise HTTPException(status_code=401, detail="Token missing")
 
     try:

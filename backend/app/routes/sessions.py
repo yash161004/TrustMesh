@@ -81,6 +81,9 @@ class TurnResponse(BaseModel):
 @limiter.limit(settings.rate_limit_session_create)
 async def create_session(request: Request, payload: CreateSessionRequest, user: User = Depends(get_current_user)):
     """Create a new negotiation session between buyer and seller agents."""
+    if not user.org_id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: You must belong to an organization to create a session.")
+        
     session = await session_manager.create_session(
         buyer_agent_id=payload.buyer_agent_id,
         seller_agent_id=payload.seller_agent_id,
@@ -104,6 +107,88 @@ async def create_session(request: Request, payload: CreateSessionRequest, user: 
     )
 
 
+@router.post("/load-demo", summary="Load Demo Data")
+async def load_demo_data(user: User = Depends(get_current_user)):
+    """Generates fresh demo sessions assigned to the current user by cloning seed data."""
+    import uuid
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from ..db import _async_session_factory, SessionRecord, MessageRecord, LedgerEntryRecord, TrustReportRecord
+    
+    if not user.org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    async with _async_session_factory() as db:
+        # Find the demo sessions (those with org_id IS NULL)
+        result = await db.execute(
+            select(SessionRecord)
+            .where(SessionRecord.org_id == None)
+            .options(selectinload(SessionRecord.messages))
+        )
+        demo_sessions = result.scalars().all()
+        
+        for old_s in demo_sessions:
+            new_id = str(uuid.uuid4())
+            new_s = SessionRecord(
+                id=new_id,
+                user_id=user.id,
+                org_id=user.org_id,
+                buyer_agent_id=old_s.buyer_agent_id,
+                seller_agent_id=old_s.seller_agent_id,
+                buyer_identity_id=old_s.buyer_identity_id,
+                seller_identity_id=old_s.seller_identity_id,
+                status=old_s.status,
+                created_at=old_s.created_at,
+                final_price=old_s.final_price,
+                outcome=old_s.outcome,
+                scenario_json=old_s.scenario_json,
+            )
+            db.add(new_s)
+            
+            for old_m in old_s.messages:
+                new_m = MessageRecord(
+                    session_id=new_id,
+                    message_type=old_m.message_type,
+                    sender=old_m.sender,
+                    price=old_m.price,
+                    quantity=old_m.quantity,
+                    delivery_terms=old_m.delivery_terms,
+                    timestamp=old_m.timestamp,
+                    turn_number=old_m.turn_number,
+                    notes=old_m.notes,
+                    signer_public_key=old_m.signer_public_key,
+                )
+                db.add(new_m)
+                
+            tr_result = await db.execute(select(TrustReportRecord).where(TrustReportRecord.session_id == old_s.id))
+            old_tr = tr_result.scalar_one_or_none()
+            if old_tr:
+                new_tr = TrustReportRecord(
+                    session_id=new_id,
+                    evaluated_at=old_tr.evaluated_at,
+                    report_json=old_tr.report_json,
+                    created_at=old_tr.created_at,
+                )
+                db.add(new_tr)
+                
+            le_result = await db.execute(select(LedgerEntryRecord).where(LedgerEntryRecord.session_id == old_s.id))
+            for old_le in le_result.scalars().all():
+                new_le = LedgerEntryRecord(
+                    session_id=new_id,
+                    sequence=old_le.sequence,
+                    message_json=old_le.message_json,
+                    signature=old_le.signature,
+                    signer_public_key=old_le.signer_public_key,
+                    prev_hash=old_le.prev_hash,
+                    entry_hash=old_le.entry_hash,
+                    created_at=old_le.created_at,
+                )
+                db.add(new_le)
+                
+        await db.commit()
+    return {"status": "success"}
+
+
 @router.post("/{session_id}/start", status_code=202, summary="Start Session")
 @limiter.limit(settings.rate_limit_turn)
 async def start_session(
@@ -115,7 +200,7 @@ async def start_session(
     """Start a negotiation session with the buyer's initial offer."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
             
         background_tasks.add_task(session_manager.start_session, session_id)
@@ -136,7 +221,7 @@ async def process_turn(
     """Process one or more negotiation turns."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
 
         background_tasks.add_task(
@@ -155,7 +240,7 @@ async def get_session(session_id: str, user: User = Depends(get_current_user)):
     """Get session details by ID."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         return SessionResponse(
             session_id=session.session_id,
@@ -171,12 +256,61 @@ async def get_session(session_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{session_id}/export", summary="Export Session PDF")
+@limiter.limit(settings.rate_limit_turn)
+async def export_session_pdf(
+    request: Request,
+    session_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Export a PDF report of the negotiation session."""
+    from fastapi.responses import Response
+    try:
+        session = await session_manager.get_session(session_id)
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
+        
+        messages = await session_manager.get_messages(session_id)
+        try:
+            report = await session_manager.evaluate_trust_for_session(session_id)
+            trust_dict = report.model_dump()
+        except Exception:
+            trust_dict = {}
+
+        raw_entries = await load_ledger_entries(session_id)
+        chain_valid, broken_at = verify_chain(raw_entries)
+        
+        ledger_dict = {
+            "chain_valid": chain_valid,
+            "entries": [e for e in raw_entries]
+        }
+        
+        from ..pdf_generator import generate_session_pdf
+        pdf_bytes = generate_session_pdf(
+            session_id=session_id,
+            session=session.model_dump(),
+            messages=[m.model_dump() for m in messages],
+            trust_report=trust_dict,
+            ledger=ledger_dict
+        )
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="session_{session_id}.pdf"'
+            }
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{session_id}/messages", response_model=list[NegotiationMessage], summary="Get Messages")
 async def get_messages(session_id: str, user: User = Depends(get_current_user)):
     """Get all messages for a negotiation session."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         messages = await session_manager.get_messages(session_id)
         return messages
@@ -230,7 +364,7 @@ async def evaluate_trust(
     try:
         # Check if session exists
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
         
         # Calling evaluate_trust_for_session with update_reputation=True so that
@@ -283,7 +417,7 @@ async def get_ledger(
     """Return the full hash-chained ledger for a session with chain-validity."""
     try:
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -317,7 +451,7 @@ async def session_websocket(
     """
     try:
         session = await session_manager.get_session(session_id)
-        if session.org_id != user.org_id and user.role != "admin":
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
             await websocket.close(code=4003, reason="Forbidden")
             return
     except ValueError:

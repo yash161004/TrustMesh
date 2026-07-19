@@ -6,10 +6,16 @@ import { Show } from '@clerk/astro/components';
   <a href="/" class="text-lg font-bold text-gold no-underline tracking-tight">
     TrustMesh
   </a>
-  <nav class="flex items-center gap-5">
+  <nav aria-label="Main" class="flex items-center gap-5">
     <Show when="signed-in">
       <a href="/dashboard" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
         Dashboard
+      </a>
+      <a href="/dashboard/agents" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
+        Agent Directory
+      </a>
+      <a href="/admin/analytics" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
+        Analytics
       </a>
       <a href="/sign-out" class="text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary">
         Sign out

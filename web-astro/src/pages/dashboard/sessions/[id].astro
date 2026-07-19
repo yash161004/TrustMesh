@@ -8,6 +8,7 @@ const { id } = Astro.params;
 if (!id) {
   return Astro.redirect('/dashboard');
 }
+const clerkBypass = process.env.CLERK_BYPASS === 'true';
 ---
 
 <Layout title="Session">
@@ -18,6 +19,6 @@ if (!id) {
     >
       &larr; Back to Sessions
     </a>
-    <SessionView client:load sessionId={id} />
+    <SessionView client:load sessionId={id} clerkBypass={clerkBypass} />
   </main>
 </Layout>

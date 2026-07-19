@@ -6,6 +6,7 @@
 # Web Framework
 fastapi>=0.115.5
 uvicorn[standard]>=0.32.1
+reportlab>=4.0.0
 
 # Pydantic for data validation
 pydantic>=2.10.3
@@ -40,4 +41,3 @@ svix>=1.21.0
 slowapi>=0.1.9
 
 structlog
-

@@ -105,3 +105,51 @@ def test_admin_endpoints(test_client, mock_user_a):
     # Admin user can access
     resp = test_client.get("/api/v1/admin/sessions")
     assert resp.status_code == 200
+
+def dummy_user_none(request: Request = None, ):
+    user = User(id="user-none", role="standard", org_id=None)
+    if request:
+        request.state.user = user
+    return user
+
+def dummy_user_none2(request: Request = None, ):
+    user = User(id="user-none-2", role="standard", org_id=None)
+    if request:
+        request.state.user = user
+    return user
+
+def test_none_org_id_isolation(test_client):
+    """Test that two users with org_id=None cannot access each other's sessions."""
+    # First, test they cannot even create a session
+    app.dependency_overrides[get_current_user] = dummy_user_none
+    resp = test_client.post("/api/v1/sessions", json={"provider": "mock"})
+    assert resp.status_code == 403
+    
+    # Second, test that if a session with None somehow exists, it cannot be read
+    from app.session_manager import session_manager
+    from app.models import NegotiationSession, NegotiationSessionStatus
+    from datetime import datetime, timezone
+    
+    dummy_session = NegotiationSession(
+        session_id="none-session",
+        user_id="user-none",
+        org_id=None,
+        buyer_agent_id="buyer",
+        seller_agent_id="seller",
+        status=NegotiationSessionStatus.PENDING,
+        created_at=datetime.now(timezone.utc),
+    )
+    
+    original_get_session = session_manager.get_session
+    async def mock_get_session(session_id):
+        if session_id == "none-session":
+            return dummy_session
+        return await original_get_session(session_id)
+        
+    session_manager.get_session = mock_get_session
+    try:
+        resp = test_client.get("/api/v1/sessions/none-session")
+        assert resp.status_code == 403
+    finally:
+        session_manager.get_session = original_get_session
+        app.dependency_overrides.clear()

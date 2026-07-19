@@ -151,7 +151,7 @@ function TrustScoreGauge({ label, score, trend, agentId, reputationScore, sessio
     pct >= 50 ? "bg-amber-500" : "bg-red-500";
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div id={label.toLowerCase()} className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-white/50 uppercase tracking-wider">{label}</span>
         {trend && (
@@ -212,7 +212,7 @@ function TrustScorePanel({ trustData, loading, session, identities }) {
   const sellerIdentity = session?.seller_identity_id ? identities[session.seller_identity_id] : null;
 
   return (
-    <div className="glass rounded-2xl p-5 border-glow">
+    <div id="trust-panel" className="glass rounded-2xl p-5 border-glow">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white/90">Trust Scores</h2>
         <span className="badge-active">Evaluated</span>
@@ -278,7 +278,7 @@ function ViolationsList({ violations, loading }) {
 
   if (!violations || violations.length === 0) {
     return (
-      <div className="glass rounded-2xl p-5 border-glow h-full">
+      <div id="violations-panel" className="glass rounded-2xl p-5 border-glow h-full">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white/90">Violations</h2>
           <span className="badge-pending">Pending</span>
@@ -292,7 +292,7 @@ function ViolationsList({ violations, loading }) {
   }
 
   return (
-    <div className="glass rounded-2xl p-5 border-glow h-full">
+    <div id="violations-panel" className="glass rounded-2xl p-5 border-glow h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white/90">Violations</h2>
         <div className="flex items-center gap-2">
@@ -463,6 +463,13 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [apiData,   setApiData]   = useState(null);
   const [sessions, setSessions] = useState([]);
+  
+  useEffect(() => {
+    const handler = (e) => setSelectedSessionId(e.detail);
+    window.addEventListener('setSession', handler);
+    return () => window.removeEventListener('setSession', handler);
+  }, []);
+
   const [identities, setIdentities] = useState({});
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [chartData, setChartData] = useState([]);

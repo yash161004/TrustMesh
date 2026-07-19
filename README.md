@@ -1,37 +1,71 @@
 # TrustMesh
 
-> Verification and anti-manipulation trust layer for AI-to-AI negotiation.
+> The Impartial Referee for the Agentic AI Economy.
 
-TrustMesh sits between two LLM agents (a **Buyer** and a **Seller**) negotiating a B2B procurement deal. A **Trust Engine** monitors every exchange for manipulation, broken commitments, and policy violations. A **Cryptographic Ledger** produces a tamper-evident, Ed25519-signed record of each message. A **React dashboard** with live WebSocket streaming shows everything in real time.
+As we enter the era of **Agentic AI**, autonomous agents will negotiate contracts, manage supply chains, and execute trades on our behalf. But how do we trust them to play by the rules?
+
+**TrustMesh** is a trusted verification system that acts as an impartial referee for AI-to-AI (A2A) negotiations. It evaluates every exchange for manipulation, broken commitments, and policy violations, and records it all on a tamper-evident cryptographic ledger. 
+
+📖 **[Read the 90-Second Demo Script](docs/DEMO_SCRIPT.md)**
 
 ---
 
-## Architecture
+## 📸 See it in Action
 
-```
+### Dashboard & Live Negotiation
+![Dashboard Overview](docs/screenshots/01_dashboard_overview.png)
+
+### Real-time Trust Engine & Flagging
+When an agent attempts a manipulation tactic (e.g. faking scarcity), the Trust Engine flags it live.
+![Trust Scores](docs/screenshots/02_trust_scores.png)
+![Violations List](docs/screenshots/03_violations_list.png)
+
+### Cryptographic Ledger (ERC-8004 Inspired)
+Every message is signed via Ed25519 and hashed to form a tamper-evident chain. Note that "Ledger Verified" indicates true cryptographic chain integrity, independent of whether policy violations occurred during the negotiation.
+![Ledger Verified](docs/screenshots/04_ledger_verified.png)
+*(If anyone tampers with a signed message post-facto, the chain breaks instantly.)*
+![Ledger Broken](docs/screenshots/05_ledger_broken.png)
+
+---
+
+## Architecture & Trust Story
+
+TrustMesh evaluates its own internal agents, separating the **negotiation logic** from the **verification logic**.
+
+```text
 ┌───────────────────────────────────────────────────────────────┐
-│  Buyer Agent (LLM)  ◄──── Negotiation ────►  Seller Agent (LLM) │
-│         │                                        │              │
-│         ▼                                        ▼              │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Trust Engine — detects manipulation, policy violations,  │  │
-│  │  broken commitments, and currency swaps                   │  │
-│  └────────────────────────┬─────────────────────────────────┘  │
-│                           ▼                                    │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Cryptographic Ledger — Ed25519 signatures, SHA-256      │  │
-│  │  hash chain, append-only, tamper-evident                  │  │
-│  └────────────────────────┬─────────────────────────────────┘  │
-│                           ▼                                    │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Dashboard — React + Vite + Tailwind + Recharts           │  │
-│  │  Real-time price chart, trust scores, violations,         │  │
-│  │  ledger viewer via WebSocket                              │  │
-│  └──────────────────────────────────────────────────────────┘  │
+│                       TrustMesh Platform                      │
+│                                                               │
+│  [Buyer Agent] ◄──────── Negotiation ────────► [Seller Agent] │
+│      (LLM)                                          (LLM)     │
+│        │                                              │       │
+│        ▼                                              ▼       │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ 1. Trust Engine (Evaluator)                              │ │
+│  │    Detects manipulation, broken commitments, and policy  │ │
+│  │    violations in real-time.                              │ │
+│  └────────────────────────┬─────────────────────────────────┘ │
+│                           ▼                                   │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ 2. Cryptographic Ledger (Ed25519)                        │ │
+│  │    Every message is digitally signed & hashed into an    │ │
+│  │    append-only, tamper-evident chain.                    │ │
+│  └────────────────────────┬─────────────────────────────────┘ │
+│                           ▼                                   │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ 3. Live Dashboard (WebSocket)                            │ │
+│  │    Streams the negotiation, trust scores, and ledger     │ │
+│  │    verification directly to the frontend UI.             │ │
+│  └──────────────────────────────────────────────────────────┘ │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-For a detailed phase-by-phase walkthrough, see **[docs/PHASES.md](docs/PHASES.md)**.
+**The Trust Story:**
+1. **Identity:** Every agent holds an **AgentCard** (ERC-8004 descriptor) binding its public key to its authorized capabilities.
+2. **Behavioral Guardrails:** The **Trust Engine** analyzes every turn, heavily penalizing agents that use high-pressure manipulation tactics or deviate from budget constraints.
+3. **Mathematical Proof:** Visibility is not enough for enterprise compliance. TrustMesh provides cryptographic proof that the exact negotiation history is mathematically immutable.
+
+For a detailed phase-by-phase walkthrough of what was built, see **[docs/PHASES.md](docs/PHASES.md)**.
 
 ---
 
@@ -67,6 +101,24 @@ docker compose up --build
 
 - **Frontend:** http://localhost
 - **Backend API:** http://localhost:8000
+
+---
+
+## Webhooks & Ngrok (Development)
+
+If you are using Clerk (or any other external service) with webhooks in local development, you must expose your local server using `ngrok`.
+
+> **⚠️ IMPORTANT:** Ngrok free-tier accounts now receive a persistent static domain (e.g., `https://*.ngrok-free.dev`). While your URL won't change on restart, if your dev machine restarts or the ngrok process dies, webhooks will **silently fail** because Clerk will try to hit the dead tunnel.
+
+**To ensure webhooks work:**
+1. Keep ngrok running: `ngrok http 8000` (or `ngrok.cmd http 8000` on Windows)
+2. Ensure your backend server is also running on port 8000.
+3. Ensure your Clerk Webhook Endpoint URL includes the full path (e.g., `https://scabby-wobble-unblock.ngrok-free.dev/api/v1/webhooks/clerk`).
+
+You can use the included health-check script to verify your tunnel is up:
+```bash
+python backend/scripts/check_ngrok.py
+```
 
 ---
 

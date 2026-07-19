@@ -58,8 +58,8 @@ async def clerk_webhook(request: Request, db: AsyncSession = Depends(get_session
         await db.commit()
         logger.info(f"Handled user.created for {clerk_id}")
 
-    elif evt_type in ("organization.created", "organization.membership.created"):
-        org_data = data.get("organization", data) if evt_type == "organization.membership.created" else data
+    elif evt_type in ("organization.created", "organizationMembership.created"):
+        org_data = data.get("organization", data) if evt_type == "organizationMembership.created" else data
         clerk_org_id = org_data.get("id")
         name = org_data.get("name", "")
         
@@ -79,7 +79,7 @@ async def clerk_webhook(request: Request, db: AsyncSession = Depends(get_session
             org.name = name
 
         # If it's a membership event, also update the user
-        if evt_type == "organization.membership.created":
+        if evt_type == "organizationMembership.created":
             public_user_data = data.get("public_user_data", {})
             clerk_user_id = public_user_data.get("user_id")
             if clerk_user_id:

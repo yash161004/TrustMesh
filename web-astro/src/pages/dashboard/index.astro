@@ -1,6 +1,8 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import SessionList from '../../components/SessionList';
+
+const clerkBypass = process.env.CLERK_BYPASS === 'true';
 ---
 
 <Layout title="Dashboard">
@@ -14,6 +16,6 @@ import SessionList from '../../components/SessionList';
         New Session
       </a>
     </header>
-    <SessionList client:load />
+    <SessionList client:load clerkBypass={clerkBypass} />
   </main>
 </Layout>

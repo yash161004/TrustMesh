@@ -1,0 +1,1 @@
+<span class="cl-socialButtonsProviderIcon cl-providerIcon cl-socialButtonsProviderIcon__google cl-providerIcon__google 🔒️ cl-internal-vn3zkh" aria-label="Sign in with Google"></span>

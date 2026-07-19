@@ -70,7 +70,9 @@ async def run_benchmark():
     provider_stats = {"cache": 0}
     
     async def cached_generate(messages: list[dict], system: str = "") -> str:
-        prompt_content = json.dumps(messages)
+        provider = getattr(llm, 'provider', 'unknown')
+        model = getattr(llm, 'model_name', 'unknown')
+        prompt_content = f"{provider}_{model}_{json.dumps(messages)}"
         h = hashlib.md5(prompt_content.encode()).hexdigest()
         cache_file = cache_dir / f"{current_scenario_id}_{h}.json"
         

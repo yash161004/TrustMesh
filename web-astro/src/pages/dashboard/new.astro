@@ -1,6 +1,8 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import LaunchForm from '../../components/LaunchForm';
+
+const clerkBypass = process.env.CLERK_BYPASS === 'true';
 ---
 
 <Layout title="New Session">
@@ -12,6 +14,6 @@ import LaunchForm from '../../components/LaunchForm';
       &larr; Back to Sessions
     </a>
     <h1 class="mb-8 text-xl font-semibold tracking-tight text-text-primary">Launch Negotiation</h1>
-    <LaunchForm client:load />
+    <LaunchForm client:load clerkBypass={clerkBypass} />
   </main>
 </Layout>

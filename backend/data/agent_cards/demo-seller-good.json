@@ -2,7 +2,7 @@
   "card": {
     "agent_id": "demo-seller-good",
     "role": "seller",
-    "display_name": "Demo Seller (Good)",
+    "display_name": "Seller Agent",
     "capabilities": [
       "negotiate_price",
       "commit_to_terms",
@@ -11,9 +11,9 @@
       "adjust_delivery_terms",
       "provide_quote"
     ],
-    "public_key": "n4tBERJrIgdfSSMPJx9tHs9Rv1dXQzmwyHt7+6uUA20=",
-    "created_at": "2026-07-16T15:38:46.504558Z",
+    "public_key": "71/PkfYlMTMlcxVcNp2UltLyCjrHi8g+CJ9+0lHSM8g=",
+    "created_at": "2026-07-19T11:04:16.209944Z",
     "version": "1.0.0"
   },
-  "signature": "Tu+vdNh6QJgQ9yN5IuAFcSsEndAAcxZdO/yOMHEwhgpseTSnp/kpl2OmNx52EjKkioy1o3ziavfYbHZYEpqBAg=="
+  "signature": "rndN9sNL2C6R8EMHwH+sJJq6gB6Gq3Y7+wZbULs+8ycQeROG8/hevNe2yN4QbPf+578x1Pwv3f7Aa97rnYoVCQ=="
 }

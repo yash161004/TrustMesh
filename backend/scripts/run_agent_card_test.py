@@ -23,7 +23,7 @@ async def main():
     role = "seller"
     
     print(f"\n2. Generating AgentCard for {agent_id} ({role})...")
-    card, sig = await generate_agent_card(role=role, agent_id=agent_id)
+    card, sig = generate_agent_card(role=role, agent_id=agent_id)
     
     path = card_file_path(agent_id)
     print(f"Card written to {path}")
@@ -38,11 +38,11 @@ async def main():
     print("\n4. Tampering with AgentCard...")
     data = json.loads(path.read_text())
     
-    # Tamper with the reputation
-    original_score = data["card"]["reputation"]["trust_score"]
-    tampered_score = 1.0
-    print(f"Tampering: Changing trust_score from {original_score} to {tampered_score}")
-    data["card"]["reputation"]["trust_score"] = tampered_score
+    # Tamper with the role
+    original_role = data["card"]["role"]
+    tampered_role = "admin"
+    print(f"Tampering: Changing role from {original_role} to {tampered_role}")
+    data["card"]["role"] = tampered_role
     
     path.write_text(json.dumps(data, indent=2))
     

@@ -154,8 +154,8 @@ class CommitmentConsistencyChecker:
             "trust_impact": 0
         }
 
-    # NOTE: To mitigate remaining LLM variance (e.g. false positives on
-    # truthful concessions), a viable production strategy is to use a
-    # majority-vote across 2+ LLM calls. This was intentionally limited to
-    # a single call here to avoid tripling API costs at benchmark stage.
+    # NOTE: ManipulationDetector ships as documented single-model classification.
+    # Multi-provider majority-vote was attempted, invalidated by the cache-key
+    # bug (fixed), and true parallel voting is infeasible on free-tier rate limits
+    # — so it's a documented future direction, not a shipped feature.
 

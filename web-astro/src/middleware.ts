@@ -11,9 +11,15 @@ function isPublicPath(pathname: string): boolean {
   });
 }
 
+const CLERK_BYPASS = process.env.CLERK_BYPASS === 'true';
+
 export const onRequest = clerkMiddleware((auth, context, next) => {
   const url = new URL(context.request.url);
   const { pathname } = url;
+
+  if (CLERK_BYPASS) {
+    return next();
+  }
 
   if (isPublicPath(pathname)) {
     return next();

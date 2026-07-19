@@ -1,4 +1,4 @@
-# Manipulation Detector Variance & Majority-Vote Findings
+# Manipulation Detector Variance Findings
 
 ## 1. Initial Single-Call Variance
 During the Phase B validation, we ran the 8-scenario `manipulation_holdout.json` dataset three separate times against the Groq LLM (with caching disabled) to measure variance. 
@@ -14,9 +14,8 @@ The results exposed extreme instability in the model's judgements for manipulati
 
 **Conclusion on Single-Call**: The LLM struggles to consistently differentiate between standard, slightly aggressive business negotiation tactics and actual adversarial manipulation. It is highly sensitive to slight temperature variations in inference.
 
-## 2. Majority-Vote Mitigation Implementation
-To combat this, we implemented a majority-vote system inside `ManipulationDetector.evaluate()`. 
-When `majority_vote=True` (now the default), the engine queries the LLM 3 times independently for the exact same message and takes the 2-of-3 agreement on the `is_manipulation_attempt` boolean. The `trust_impact` is averaged from the concurring votes.
+## 2. Majority-Vote Mitigation Attempt
+ManipulationDetector ships as documented single-model classification. Multi-provider majority-vote was attempted, invalidated by the cache-key bug (fixed), and true parallel voting is infeasible on free-tier rate limits — so it's a documented future direction, not a shipped feature.
 
 ## 3. Re-Validation Results & Viability Conclusion
 
@@ -28,7 +27,7 @@ Groq's free tier imposes strict rate limits, specifically a 7,000 Tokens Per Min
 * Evaluating just a few scenarios back-to-back instantly exhausts the 7,000 TPM limit, resulting in cascading `429 Too Many Requests` errors.
 
 **Honest Conclusion**: 
-While majority-voting is mathematically sound for reducing binomial variance in LLM outputs, **it remains completely unviable for production use on strict/free LLM tiers (like Groq) due to hard rate limit exhaustion.** 
+ManipulationDetector ships as documented single-model classification. Multi-provider majority-vote was attempted, invalidated by the cache-key bug (fixed), and true parallel voting is infeasible on free-tier rate limits — so it's a documented future direction, not a shipped feature.
 
 To isolate whether burst-traffic was the culprit, we ran a final, highly conservative test: a single pass of the 8 scenarios with history aggressively trimmed to 5 turns, paced with a generous 15 seconds between every single internal vote, and 20 seconds between scenarios. 
 

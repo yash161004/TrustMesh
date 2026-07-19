@@ -2,6 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import AdminStats from '../../components/AdminStats';
 import AdminViolations from '../../components/AdminViolations';
+import AdminTacticsChart from '../../components/AdminTacticsChart';
 import AdminTrustPanel from '../../components/AdminTrustPanel';
 import AdminLedger from '../../components/AdminLedger';
 ---
@@ -17,8 +18,9 @@ import AdminLedger from '../../components/AdminLedger';
       <AdminStats client:load />
     </section>
 
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <div class="lg:col-span-2">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3 mb-6">
+      <div class="lg:col-span-2 space-y-6">
+        <AdminTacticsChart client:load />
         <AdminViolations client:load />
       </div>
       <div class="space-y-6">
