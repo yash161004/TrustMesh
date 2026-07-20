@@ -402,7 +402,7 @@ class LLMClient(ABC):
     """Abstract base class for LLM API clients."""
 
     @abstractmethod
-    async def generate(self, messages: list[dict], system: str = "") -> str:
+    async def generate(self, messages: list[dict], system: str = "", temperature: float = 0.0) -> str:
         """Generate a response from the LLM."""
         ...
 
@@ -423,7 +423,7 @@ class LiteLLMClient(LLMClient):
         self.model_name = model_name
         self.provider = provider
         
-    async def generate(self, messages: list[dict], system: str = "") -> str:
+    async def generate(self, messages: list[dict], system: str = "", temperature: float = 0.0) -> str:
         if self.model_name == "mock":
             return _mock_response_generic(messages)
             
@@ -439,9 +439,25 @@ class LiteLLMClient(LLMClient):
             response = await router.acompletion(
                 model=self.model_name,
                 messages=formatted_messages,
-                max_tokens=1024
+                max_tokens=1024,
+                temperature=temperature
             )
             self.last_used_provider = self.provider
+            
+            try:
+                import litellm
+                cost = litellm.completion_cost(completion_response=response)
+                global_stats = globals().setdefault("llm_stats", {"cost": 0.0, "tokens": 0})
+                global_stats["cost"] += cost
+                global_stats["tokens"] += response.usage.total_tokens
+                
+                raw_text = response.choices[0].message.content
+                import hashlib
+                h = hashlib.md5(raw_text.encode('utf-8')).hexdigest()[:6]
+                print(f"[VERIFY] Temp={temperature} | Tokens={response.usage.total_tokens} | Hash={h} | Text: {repr(raw_text[:60])}...")
+            except Exception:
+                pass
+                
             return response.choices[0].message.content
             
         if semaphore:

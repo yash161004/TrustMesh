@@ -14,27 +14,29 @@ The results exposed extreme instability in the model's judgements for manipulati
 
 **Conclusion on Single-Call**: The LLM struggles to consistently differentiate between standard, slightly aggressive business negotiation tactics and actual adversarial manipulation. It is highly sensitive to slight temperature variations in inference.
 
-## 2. Majority-Vote Mitigation Attempt
-ManipulationDetector ships as documented single-model classification. Multi-provider majority-vote was attempted, invalidated by the cache-key bug (fixed), and true parallel voting is infeasible on free-tier rate limits — so it's a documented future direction, not a shipped feature.
+## 2. Mitigation via Self-Consistency Sampling
+To combat the variance seen in the single-call baseline, the detector implements **Self-Consistency Sampling** as its default path. For every evaluation, the detector fires 3 concurrent calls to Gemini Flash Lite at `temperature=0.15`, takes a majority-vote of the `flagged` verdict, and averages the confidence scores of the agreeing subset. 
 
-## 3. Re-Validation Results & Viability Conclusion
+*(Note: Multi-provider cross-voting exists in the codebase but is strictly opt-in. Free-tier rate limits across multiple providers can trigger cascading failures — including router crashes observed during benchmarking — making cross-provider voting unsuitable as a default).*
 
-When attempting to re-validate the holdout dataset (8 scenarios) with the majority-vote system (3 runs of 3 inner calls per scenario = 72 API calls), we encountered a critical architectural limitation: **Provider Rate Limits**.
+### Guarding Against Silent Degradation
+A critical architectural lesson learned during benchmarking: multiplying API calls by 3x puts heavy pressure on free-tier rate limits (Gemini caps at 15 Requests Per Minute). During un-throttled batch testing, this burst traffic rapidly triggers `429 Too Many Requests` errors. 
 
-Groq's free tier imposes strict rate limits, specifically a 7,000 Tokens Per Minute (TPM) limit for models like `llama3-70b-8192`. 
-* A single negotiation history evaluation consumes ~500-800 tokens. 
-* A 3-vote evaluation consumes ~1,500-2,400 tokens per message turn.
-* Evaluating just a few scenarios back-to-back instantly exhausts the 7,000 TPM limit, resulting in cascading `429 Too Many Requests` errors.
+To prevent these infrastructure failures from corrupting accuracy metrics with fake confidence scores, the detector implements a strict **hard guard**: if any of the 3 concurrent calls fail or time out, the system explicitly aborts the vote and returns `degraded=True`. 
 
-**Honest Conclusion**: 
-ManipulationDetector ships as documented single-model classification. Multi-provider majority-vote was attempted, invalidated by the cache-key bug (fixed), and true parallel voting is infeasible on free-tier rate limits — so it's a documented future direction, not a shipped feature.
+**Current Production Gap:** While the benchmark scripts correctly intercept `degraded=True` and exclude those scenarios from accuracy scoring, the live `TrustEngine` path currently treats a degraded result as a simple `flagged: False`. This means if a live negotiation session hits a rate limit, the message silently passes through as "unflagged" without blocking, retrying, or surfacing the degraded state to the UI. This is a known gap that needs to be addressed in future UI/engine updates.
 
-To isolate whether burst-traffic was the culprit, we ran a final, highly conservative test: a single pass of the 8 scenarios with history aggressively trimmed to 5 turns, paced with a generous 15 seconds between every single internal vote, and 20 seconds between scenarios. 
+### Re-Validation Results
+After implementing a 15-second throttle between scenarios to sustain a safe ~12 RPM, we ran 5 uncorrupted benchmark runs against the 8-scenario holdout (40 total scenarios, 120 independent LLM calls). 
 
-Even under this extremely slow pacing (which took over 12 minutes of wall-clock time just attempting to execute), the script encountered endless 15-second exponential backoff loops (`429 Too Many Requests`). This indicates that we haven't just hit a transient "Requests Per Minute" (RPM) limit—we have entirely exhausted Groq's daily free-tier quota (Tokens Per Day) simply by running our validation benchmarks a few times.
+**The results were identical across all 5 runs:**
+* **Precision**: 1.00 
+* **Recall**: 1.00
+* **F1 Score**: 1.00
+* **Disagreement Rate**: 0.00
+* **Degraded**: 0 (all 120 calls successfully completed)
 
-This is a valid and critical production finding: a 3-vote system multiplies the API token overhead so aggressively that it is fundamentally incompatible with free-tier APIs, regardless of realistic pacing or prompt minimization. 
+**Conclusion:** 
+Self-consistency sampling is shipped, functional, and successfully eliminated the variance gap seen in the baseline. However, the most notable finding is the `0.00` disagreement rate across 120 independent, un-cached calls (verified via trace logs showing varying payload hashes and token counts). At `temperature=0.15`, Gemini proved highly deterministic. 
 
-If we intend to use majority-voting in production, we MUST:
-1. Upgrade to a paid tier with substantially higher TPM/TPD limits (e.g., OpenAI or Groq paid tiers).
-2. Alternatively, accept the single-call variance and attempt to solve the stability issue entirely through prompt engineering and model tuning.
+*(Caveat: This zero-disagreement stability was measured strictly on the same 8-scenario holdout used throughout validation; it demonstrates that Gemini is highly consistent on these specific edge cases, but does not necessarily guarantee the same determinism generalizing to novel, untested scenarios).*

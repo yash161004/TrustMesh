@@ -12,6 +12,17 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
+class SessionEventType(str, Enum):
+    """Operational events that are not trust violations."""
+    EVALUATION_DEGRADED = "EVALUATION_DEGRADED"
+
+class SessionEvent(BaseModel):
+    """A non-violation operational event during a session (e.g. rate limits)."""
+    event_type: SessionEventType
+    message_turn: int
+    agent_id: str
+    description: str
+
 class ViolationType(str, Enum):
     """Categories of trust violations detected by the Trust Engine."""
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
@@ -45,6 +56,8 @@ class Violation(BaseModel):
     agent_id: str
     description: str
     status: ViolationStatus = Field(default=ViolationStatus.FLAGGED)
+    confidence_band: Optional[str] = None
+    disagreement_rate: Optional[float] = None
     detail: Optional[dict] = None
 
 
@@ -63,4 +76,5 @@ class TrustReport(BaseModel):
     buyer_score: Optional[TrustScore] = None
     seller_score: Optional[TrustScore] = None
     violations: list[Violation] = Field(default_factory=list)
+    events: list[SessionEvent] = Field(default_factory=list)
     summary: str = ""

@@ -300,6 +300,7 @@ export default function SessionView({ sessionId: propSessionId, clerkBypass }: P
               // We currently hardcode Buyer as right-aligned (the "viewing org" perspective) 
               // for demo purposes until full multi-org mapping is added to SessionRecord.
               const isCurrentUser = msg.sender.includes('buyer');
+              const degradedEvent = trust?.events?.find(e => e.message_turn === msg.turn_number && e.event_type === 'EVALUATION_DEGRADED');
               
               return (
                 <div key={msg.turn_number} className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'}`}>
@@ -320,6 +321,12 @@ export default function SessionView({ sessionId: propSessionId, clerkBypass }: P
                       <span className="font-semibold">${msg.price}/unit</span>
                       <span className="hidden sm:inline">&middot;</span>
                       <span>Qty: {msg.quantity}</span>
+                      {degradedEvent && (
+                        <>
+                          <span className="hidden sm:inline">&middot;</span>
+                          <span className="text-dot-active font-bold px-1.5 py-0.5 rounded bg-dot-active/10 border border-dot-active/20" title={degradedEvent.description}>⚠️ Verification Unavailable</span>
+                        </>
+                      )}
                     </div>
 
                     {msg.notes && msg.notes !== messageText(msg) && (
@@ -353,8 +360,24 @@ export default function SessionView({ sessionId: propSessionId, clerkBypass }: P
               <div className="space-y-2.5">
                 {trust.violations.map((v, i) => (
                   <div key={i} className={`rounded border-l-4 bg-surface-750 px-3 py-2.5 shadow-sm ${severityClass(v.severity)}`}>
-                    <p className="text-[11px] font-medium text-text-muted">{v.violation_type}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-medium text-text-muted">{v.violation_type}</p>
+                      {v.confidence_band && (
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                          v.confidence_band === 'high_confidence' ? 'bg-dot-flagged/20 text-dot-flagged' :
+                          v.confidence_band === 'moderate_confidence' ? 'bg-gold/20 text-gold' :
+                          'bg-surface-600 text-text-muted'
+                        }`}>
+                          {v.confidence_band.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-1 text-[13px] text-text-primary leading-snug">{v.description}</p>
+                    {v.disagreement_rate != null && v.disagreement_rate > 0 && (
+                      <p className="mt-2 text-[10px] text-text-muted/80 italic">
+                        Detector samples disagreed {(v.disagreement_rate * 100).toFixed(0)}% of the time
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

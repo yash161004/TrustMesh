@@ -13,7 +13,7 @@ from ..models import NegotiationMessage, NegotiationScenario
 from .detectors.commitments import CommitmentConsistencyChecker
 from .detectors.manipulation import ManipulationDetector
 from .detectors.policy import PolicyDeviationFlagger
-from .models import Severity, TrustReport, TrustScore, Violation, ViolationType, ViolationStatus
+from .models import Severity, TrustReport, TrustScore, Violation, ViolationType, ViolationStatus, SessionEvent, SessionEventType
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ class TrustEngine:
         batch pre-computation to avoid slow/rate-limited API calls.
         """
         all_violations: list[Violation] = []
+        all_events: list[SessionEvent] = []
 
         # Pre-negotiation reputation checks
         if buyer_trust_score < 0.4:
@@ -114,7 +115,15 @@ class TrustEngine:
                 if scenario:
                     history_so_far = [m for m in messages if m.turn_number < msg.turn_number]
                     result = await self.manipulation.evaluate(msg, history_so_far, scenario)
-                    if result["flagged"]:
+                    
+                    if result.get("degraded"):
+                        all_events.append(SessionEvent(
+                            event_type=SessionEventType.EVALUATION_DEGRADED,
+                            message_turn=msg.turn_number,
+                            agent_id=msg.sender,
+                            description="Manipulation check unavailable (rate limited)."
+                        ))
+                    elif result.get("flagged"):
                         impact = abs(result["trust_impact"])
                         if impact >= 40:
                             sev = Severity.CRITICAL
@@ -127,13 +136,25 @@ class TrustEngine:
                             
                         status_str = result.get("status", "FLAGGED")
                         
+                        confidence_score = result.get("confidence_score", 0.0)
+                        if confidence_score >= 0.85:
+                            confidence_band = "high_confidence"
+                        elif confidence_score >= 0.6:
+                            confidence_band = "moderate_confidence"
+                        else:
+                            confidence_band = "low_confidence_review_recommended"
+                            
+                        disagreement_rate = result.get("disagreement_rate", 0.0)
+                        
                         all_violations.append(Violation(
                             violation_type=ViolationType.MANIPULATION_PATTERN,
                             severity=sev,
                             message_turn=msg.turn_number,
                             agent_id=msg.sender,
                             description=result["reason"],
-                            status=ViolationStatus(status_str)
+                            status=ViolationStatus(status_str),
+                            confidence_band=confidence_band,
+                            disagreement_rate=disagreement_rate
                         ))
 
         # Commitment checks (structural checks always run; LLM claim verification skipped when skip_llm=True)
@@ -206,6 +227,7 @@ class TrustEngine:
                 recent_trend=seller_trend,
             ),
             violations=all_violations,
+            events=all_events,
             summary=summary,
         )
 

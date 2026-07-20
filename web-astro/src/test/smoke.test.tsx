@@ -30,7 +30,8 @@ const mockTrust = {
   evaluated_at: '2026-07-18T09:15:00Z',
   buyer_score: { agent_id: 'buyer-agent-001', overall_score: 42, violation_count: 1, recent_trend: 'declining' },
   seller_score: { agent_id: 'seller-agent-001', overall_score: 88, violation_count: 0, recent_trend: 'stable' },
-  violations: [{ violation_type: 'MANIPULATION', severity: 'high', message_turn: 2, agent_id: 'seller-agent-001', description: 'Fabricated competition', status: 'confirmed', detail: null }],
+  violations: [{ violation_type: 'MANIPULATION', severity: 'high', message_turn: 2, agent_id: 'seller-agent-001', description: 'Fabricated competition', status: 'confirmed', detail: null, confidence_band: 'high_confidence', disagreement_rate: 0.33 }],
+  events: [{ event_type: 'EVALUATION_DEGRADED', message_turn: 1, agent_id: 'buyer-agent-001', description: 'Rate limit' }],
   summary: 'Violation detected',
 };
 
@@ -116,8 +117,11 @@ describe('Phase 4 island components', () => {
     await waitFor(() => {
       expect(screen.getByText('Transcript')).toBeInTheDocument();
     });
-    expect(screen.getByText('Buyer')).toBeInTheDocument();
-    expect(screen.getByText('Violations')).toBeInTheDocument();
+    expect(screen.getAllByText(/Buyer/)[0]).toBeInTheDocument();
+    expect(screen.getByText(/Detected Violations/i)).toBeInTheDocument();
+    expect(screen.getByText('⚠️ Verification Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('high confidence')).toBeInTheDocument();
+    expect(screen.getByText('Detector samples disagreed 33% of the time')).toBeInTheDocument();
     vi.restoreAllMocks();
   });
 });

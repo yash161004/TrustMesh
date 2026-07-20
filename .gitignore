@@ -76,5 +76,8 @@ desktop.ini
 nul
 .backups/
 
+# QA history files (archived test output, lighthouse reports, debug logs)
+docs/qa-history/
+
 # ─────────────────────── Cryptographic keys ─────────────────
 backend/.keys/
