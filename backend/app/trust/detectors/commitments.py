@@ -154,8 +154,5 @@ class CommitmentConsistencyChecker:
             "trust_impact": 0
         }
 
-    # NOTE: ManipulationDetector ships as documented single-model classification.
-    # Multi-provider majority-vote was attempted, invalidated by the cache-key
-    # bug (fixed), and true parallel voting is infeasible on free-tier rate limits
-    # — so it's a documented future direction, not a shipped feature.
+    # NOTE: ManipulationDetector ships as self-consistency sampling: 3 concurrent calls to the same model (Gemini) at temperature 0.15, majority-voted.
 
