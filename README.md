@@ -85,13 +85,13 @@ cp .env.example .env        # add API keys if using live LLMs
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Frontend (new terminal)
-cd frontend
+cd web-astro
 npm install
 npm run dev
 ```
 
 - **Backend:** http://localhost:8000 (API docs at /docs)
-- **Frontend:** http://localhost:5173
+- **Frontend:** http://localhost:4321
 
 ### Option B — Docker
 
@@ -211,7 +211,7 @@ Copy `backend/.env.example` to `backend/.env` and fill in as needed:
 | LLM Agents | Gemini 2.5 Flash / Groq (mock fallback) |
 | Trust Engine | Rule-based heuristics + LLM extraction |
 | Crypto | `cryptography` — Ed25519, SHA-256 |
-| Frontend | React 19 + Vite 8 + Tailwind CSS |
+| Frontend | Astro + Tailwind CSS v4 |
 | Charts | Recharts |
 | Live Updates | WebSocket (FastAPI) |
 
@@ -239,12 +239,12 @@ TrustMesh/
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env.example
-├── frontend/
-│   ├── src/                     # React app
-│   ├── nginx.conf               # Production reverse proxy
+├── web-astro/
+│   ├── src/                     # Astro app
+│   ├── public/
 │   ├── Dockerfile
 │   ├── package.json
-│   └── vite.config.js
+│   └── astro.config.mjs
 ├── docs/                        # Phase-by-phase guides
 ├── docker-compose.yml
 └── README.md

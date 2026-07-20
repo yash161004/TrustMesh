@@ -13,11 +13,9 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      args:
-        - VITE_API_URL=
+      context: ./web-astro
     ports:
-      - "80:80"
+      - "80:4321"
     depends_on:
       - backend
 
