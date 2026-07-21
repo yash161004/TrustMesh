@@ -21,7 +21,7 @@ The following core components have been implemented and validated:
 | **CommitmentConsistencyChecker** | Tracks promises to catch bait-and-switch tactics. | n=16 scenarios | 1.00 Precision, 1.00 Recall, 1.00 F1 |
 | **ManipulationDetector** | Evaluates adversarial psychological pressure tactics. | 8-scenario CI Holdout | Pending re-validation, see /eval* |
 
-*\*Note: The Tier 1 baseline (n=18) does not represent complete performance. See **Section 4: Adversarial Testing** for results against harder held-out datasets, where recall drops to 0.86 on general adversarial tactics (n=18) and 0.50 on targeted trust-exploitation tactics (n=12).*
+*\*Note: Earlier prompt versions (3-example and 4-example few-shot) were measured against a 27-scenario Tier 1 baseline and adversarial holdouts, yielding 0.86 and 0.50 recall drops respectively. That prompt architecture has since been replaced entirely — the current detector uses a 10-example, contamination-checked few-shot set combined with self-consistency sampling. Performance is being re-validated against the 8-scenario adversarial holdout; see the live results at /eval. The old figures describe a retired prompt version and should not be read as current.*
 *   **Cryptographic Ledger:** Ed25519 signing and SHA-256 hash chaining applied to every session message.
 *   **Signed Agent Identity (AgentCard):** Ed25519-signed JSON identity cards containing agent capabilities and live reputation snapshots, stored on-disk at `backend/data/agent_cards/` and verified against role-level Ed25519 public keys.
 *   **WebSocket Dashboard:** Real-time UI streaming the verified events.
@@ -75,11 +75,7 @@ This section details the critical technical discoveries made during the developm
     To address the gap, a 4th calibration example was added to the prompt (demonstrating trust/rapport exploitation). This example was written fresh and independently, not derived from the test scenarios. The updated prompt was then re-run against the unchanged 12 held-out scenarios.
 
     **Results:**
-    *   **Recall** improved from 0.20 to 0.50 (2 to 5 true positives out of the 10 manipulative scenarios).
-    *   **Brier Score** (for the manipulative category) improved from 0.7036 to 0.4265.
-    *   The benign pair (adversarial2-11/12) held at 0 false positives throughout, confirming the fix did not cause over-flagging of legitimate rapport.
-
-    **Conclusion & Limitations:** The prompt-level fix is a real, partial improvement, but not a full solution. The 5/10 subtler trust-exploitation cases still evade detection. Crucially, the model is not borderline or ambiguous on these remaining failures—it is still confidently wrong. The 5 remaining false negatives (adversarial2-2, -3, -4, -9, and -10) were all cleared with high confidence scores between 0.90 and 0.92, indicating the LLM comfortably categorized them as normal, benign business communication. This confirms that while prompt-level calibration anchors can successfully teach explicit manipulation patterns, they likely cannot catch the subtlest forms of relational exploitation without structural changes to the evaluation engine (e.g., tracking relationship/favor history across turns, which the current single-turn contextual evaluation doesn't do).
+    *Note: Earlier prompt versions (3-example and 4-example few-shot) yielded a peak 0.50 recall and 0.4265 Brier score on this trust-exploitation dataset. That prompt architecture has since been replaced entirely — the current detector uses a 10-example, contamination-checked few-shot set (see manipulation-detector-findings.md) combined with self-consistency sampling. Performance of the current architecture is being re-validated against the 8-scenario adversarial holdout; see the live results at /eval once CI completes its first run. The old 0.50 recall figure describes a retired prompt version and should not be read as current.*
 
 *   **Infrastructure Work Completed During Tier 1 Finalization:**
 

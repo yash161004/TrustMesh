@@ -4,11 +4,11 @@
 
 **Anchor Enabled during run:** True
 
-**Brier Score:** 0.0554*
+**Brier Score:** [Pending re-validation post-architecture-fix, see /eval]*
 
-**Expected Calibration Error (ECE - 10 bins):** 0.0728*
+**Expected Calibration Error (ECE - 10 bins):** [Pending re-validation post-architecture-fix, see /eval]*
 
-*\*Note: These reflect corrected values. The original scores were incorrect due to a scoring methodology bug that improperly penalized confident correct negative predictions. After aligning the probability correctly, the metrics improved to the above, confirming strong calibration.*
+*\*Note: Earlier prompt versions achieved strong binary verdicts and well-calibrated confidence scores (Brier 0.0554, ECE 0.0728) after correcting a scoring methodology bug. However, these figures were measured against a 27-scenario Tier 1 baseline using a retired prompt architecture. The current detector uses a 10-example, contamination-checked few-shot set combined with self-consistency sampling. Performance is being re-validated against the 8-scenario adversarial holdout; see the live results at /eval. The old 0.0554/0.0728 figures describe a retired prompt version and should not be read as current.*
 
 ### What do these mean?
 - **Brier Score (0.0 to 1.0):** Measures the mean squared difference between predicted probability and the actual outcome. Lower is better. A score near 0 indicates perfect accuracy and confidence.
