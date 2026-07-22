@@ -39,7 +39,8 @@ from .db import (
 from .trust.engine import trust_engine
 from .crypto.signing import get_public_key_b64, sign_message, sign_message_for_agent
 from .identity.agent_card import get_or_create_agent_card, card_file_path, verify_agent_card
-from .crypto.ledger import _GENESIS_HASH, build_entry
+from .crypto.ledger import _GENESIS_HASH, build_entry, verify_chain
+from .crypto.ledger_alerts import trigger_tamper_alert
 from .models import (
     AgentRole,
     DEFAULT_SCENARIO,
@@ -547,8 +548,21 @@ class SessionManager:
                     session_id=session_id,
                 )
                 await save_ledger_entry(**entry)
+
+                # Write-time integrity check: Verify chain state after write
+                # Cost note: Walking N entries is O(N) per write. For typical negotiations (N <= 50)
+                # this takes <1ms. If N grows into thousands, consider batching or tail checks.
+                all_entries = await load_ledger_entries(session_id)
+                is_valid, broken_at = verify_chain(all_entries)
+                if not is_valid:
+                    await trigger_tamper_alert(
+                        session_id=session_id,
+                        org_id=org_id,
+                        broken_at=broken_at,
+                        reason="write_time_tamper_check",
+                    )
             except Exception as e:
-                logger.warning("Failed to append ledger entry: %s", e)
+                logger.warning("Failed to append or verify ledger entry: %s", e)
 
         # Broadcast to connected WebSocket clients (Phase 4)
         try:

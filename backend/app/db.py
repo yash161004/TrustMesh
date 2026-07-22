@@ -28,6 +28,7 @@ from sqlalchemy import (
     create_engine,
     select,
     text,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, joinedload, relationship
@@ -116,6 +117,7 @@ class SessionRecord(Base):
     final_price = Column(Float, nullable=True)
     outcome = Column(String(20), nullable=True)  # "DEAL", "NO_DEAL", "FAILED"
     scenario_json = Column(Text, nullable=True)  # JSON-encoded NegotiationScenario
+    tamper_alerted_at = Column(DateTime(timezone=True), nullable=True)
 
     messages = relationship(
         "MessageRecord",
@@ -811,3 +813,36 @@ async def update_agent_reputation_v2(agent_id: str, session_violations: int) -> 
             "Updated v2 reputation for %s to %.2f (total_sessions: %d, violations_count: %d)",
             agent_id, record.trust_score, record.total_sessions, record.violations_count
         )
+
+
+async def claim_tamper_alert(session_id: str, alerted_at: Optional[datetime] = None) -> bool:
+    """
+    Atomically attempts to claim tamper alert ownership for a session in the database.
+    Executes an atomic UPDATE SessionRecord SET tamper_alerted_at = :dt WHERE id = :session_id AND tamper_alerted_at IS NULL.
+    Returns True if this call successfully claimed the alert (rowcount == 1), False if already claimed (existing tamper_alerted_at is not None).
+    If session record does not exist in DB (e.g. synthetic test session), returns True on first claim.
+    """
+    factory = get_session_factory()
+    dt = alerted_at or datetime.now(timezone.utc)
+    async with factory() as db:
+        res = await db.execute(
+            update(SessionRecord)
+            .where(SessionRecord.id == session_id, SessionRecord.tamper_alerted_at.is_(None))
+            .values(tamper_alerted_at=dt)
+        )
+        await db.commit()
+        if res.rowcount > 0:
+            return True
+
+        # Check if row exists with tamper_alerted_at already set
+        check = await db.execute(
+            select(SessionRecord.tamper_alerted_at).where(SessionRecord.id == session_id)
+        )
+        row = check.first()
+        if row is not None:
+            # Session exists in DB and tamper_alerted_at is already non-None
+            return False
+
+        # Session does not exist in DB (synthetic session) -> allow first claim
+        return True
+

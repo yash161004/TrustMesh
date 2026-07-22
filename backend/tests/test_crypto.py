@@ -297,3 +297,143 @@ class TestLedgerDB:
         valid, broken = verify_chain(loaded)
         assert valid is True
         assert broken is None
+
+    @pytest.mark.asyncio
+    async def test_tamper_alert_trigger_and_deduplication(self, monkeypatch):
+        from app.crypto.ledger_alerts import trigger_tamper_alert, clear_alerted_sessions_cache, _ALERTED_SESSIONS
+        import httpx
+
+        clear_alerted_sessions_cache()
+        monkeypatch.setenv("TAMPER_ALERT_WEBHOOK_URL", "https://example.com/webhook")
+
+        posted_payloads = []
+
+        async def mock_post(self, url, json=None):
+            posted_payloads.append((url, json))
+            class MockResponse:
+                status_code = 200
+                text = "OK"
+            return MockResponse()
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+        # First alert -> should post payload
+        res1 = await trigger_tamper_alert("session-tamper-001", org_id="orgA", broken_at=3, reason="write_time_tamper_check")
+        assert res1 is True
+        assert len(posted_payloads) == 1
+        url, payload = posted_payloads[0]
+        assert url == "https://example.com/webhook"
+        assert payload["event"] == "LEDGER_TAMPER_DETECTED"
+        assert payload["session_id"] == "session-tamper-001"
+        assert payload["org_id"] == "orgA"
+        assert payload["broken_at"] == 3
+        assert payload["reason"] == "write_time_tamper_check"
+
+        # Second alert for same session -> should be deduplicated (not posted again)
+        res2 = await trigger_tamper_alert("session-tamper-001", org_id="orgA", broken_at=3, reason="write_time_tamper_check")
+        assert res2 is False
+        assert len(posted_payloads) == 1
+        clear_alerted_sessions_cache()
+
+    @pytest.mark.asyncio
+    async def test_corrupted_ledger_db_sweep(self, monkeypatch):
+        from datetime import datetime, timezone
+        from sqlalchemy import text
+        from app.db import save_ledger_entry, get_session_factory, SessionRecord, save_session
+        from app.crypto.ledger_alerts import clear_alerted_sessions_cache
+        from scripts.sweep_ledger_integrity import run_integrity_sweep
+
+        clear_alerted_sessions_cache()
+        session_id = "sweep-corrupt-session"
+        now = datetime.now(timezone.utc)
+
+        # Create session record
+        await save_session(
+            session_id=session_id,
+            user_id="user-1",
+            org_id="org-corrupt",
+            buyer_agent_id="buyer-1",
+            seller_agent_id="seller-1",
+            status="ACTIVE",
+            created_at=now,
+        )
+
+        # Add 2 valid entries
+        entry1 = build_entry(SAMPLE_MSG, "sig1", "pub1", _GENESIS_HASH, 1, now, session_id=session_id)
+        await save_ledger_entry(**entry1)
+        msg2 = {**SAMPLE_MSG, "turn_number": 2}
+        entry2 = build_entry(msg2, "sig2", "pub2", entry1["entry_hash"], 2, now, session_id=session_id)
+        await save_ledger_entry(**entry2)
+
+        # Directly corrupt entry 2's entry_hash in SQLite (simulating SQL tampering)
+        factory = get_session_factory()
+        async with factory() as db_sess:
+            await db_sess.execute(
+                text("UPDATE ledger_entries SET entry_hash = 'corrupted_hash_val' WHERE session_id = :sid AND sequence = 2"),
+                {"sid": session_id}
+            )
+            await db_sess.commit()
+
+        # Mock alert webhook
+        posted_payloads = []
+        monkeypatch.setenv("TAMPER_ALERT_WEBHOOK_URL", "https://example.com/webhook")
+
+        async def mock_post(self, url, json=None):
+            posted_payloads.append(json)
+            class MockResponse:
+                status_code = 200
+                text = "OK"
+            return MockResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+        # Run sweep
+        total, valid, tampered = await run_integrity_sweep()
+        assert tampered >= 1
+        assert len(posted_payloads) == 1
+        assert posted_payloads[0]["session_id"] == session_id
+        assert posted_payloads[0]["org_id"] == "org-corrupt"
+        assert posted_payloads[0]["broken_at"] == 2
+        assert posted_payloads[0]["reason"] == "periodic_sweep"
+        clear_alerted_sessions_cache()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_atomic_tamper_alert_claim(self):
+        """Verify that concurrent claims for the same session yield exactly 1 winner in the DB."""
+        import asyncio
+        from datetime import datetime, timezone
+        from app.db import claim_tamper_alert, save_session, get_session_factory, SessionRecord
+        from sqlalchemy import select
+
+        session_id = "concurrent-race-session"
+        now = datetime.now(timezone.utc)
+
+        await save_session(
+            session_id=session_id,
+            user_id="user-race",
+            org_id="org-race",
+            buyer_agent_id="buyer-1",
+            seller_agent_id="seller-1",
+            status="ACTIVE",
+            created_at=now,
+        )
+
+        # Launch 10 concurrent claim_tamper_alert calls simultaneously
+        results = await asyncio.gather(*[claim_tamper_alert(session_id) for _ in range(10)])
+
+        # Exactly 1 call should claim ownership (return True), 9 should fail (return False)
+        true_claims = [r for r in results if r is True]
+        false_claims = [r for r in results if r is False]
+
+        assert len(true_claims) == 1
+        assert len(false_claims) == 9
+
+        # Verify DB row has tamper_alerted_at set
+        factory = get_session_factory()
+        async with factory() as db:
+            res = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
+            rec = res.scalar_one()
+            assert rec.tamper_alerted_at is not None
+
+

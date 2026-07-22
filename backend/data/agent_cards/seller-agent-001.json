@@ -1,0 +1,21 @@
+{
+  "card": {
+    "agent_id": "seller-agent-001",
+    "role": "seller",
+    "display_name": "Seller Agent",
+    "capabilities": [
+      "negotiate_price",
+      "commit_to_terms",
+      "counter_offer",
+      "offer_volume_discount",
+      "adjust_delivery_terms",
+      "provide_quote"
+    ],
+    "public_key": "V2+bWlSFXRMb0YZMKOEguVQNwDzkMuJZTDeNXd9Enco=",
+    "org_id": "test-org",
+    "owner_user_id": "test-user-id",
+    "created_at": "2026-07-22T05:23:54.441590Z",
+    "version": "1.0.0"
+  },
+  "signature": "C2BHkOuB0UsTCG6JCKSRBvwHL1//s+h10lZE8BHcv/HeFBdNwhbHqanRKcOBWtYGfe1PzmT6v5Ij48O1ACfZBQ=="
+}

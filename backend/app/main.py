@@ -76,7 +76,16 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def logging_middleware(request: Request, call_next):
         structlog.contextvars.clear_contextvars()
-        request_id = str(uuid.uuid4())
+        req_id_header = request.headers.get("X-Request-ID")
+        request_id = None
+        if req_id_header:
+            try:
+                request_id = str(uuid.UUID(req_id_header))
+            except ValueError:
+                request_id = None
+        if not request_id:
+            request_id = str(uuid.uuid4())
+            
         structlog.contextvars.bind_contextvars(request_id=request_id)
         
         response = await call_next(request)
@@ -92,6 +101,7 @@ def create_app() -> FastAPI:
             path=request.url.path,
             status_code=response.status_code,
         )
+        response.headers["X-Request-ID"] = request_id
         return response
 
     app.state.limiter = limiter

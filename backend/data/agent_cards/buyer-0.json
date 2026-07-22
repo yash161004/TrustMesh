@@ -1,0 +1,21 @@
+{
+  "card": {
+    "agent_id": "buyer-0",
+    "role": "buyer",
+    "display_name": "Buyer Agent",
+    "capabilities": [
+      "negotiate_price",
+      "commit_to_terms",
+      "counter_offer",
+      "request_discount",
+      "set_budget_ceiling",
+      "evaluate_proposal"
+    ],
+    "public_key": "Aczw8N7PEN3DXKatLWYkkRkqeIVyXi0eh/ND6bWrKcA=",
+    "org_id": "orgB",
+    "owner_user_id": "test-user-orgB",
+    "created_at": "2026-07-22T05:19:49.874441Z",
+    "version": "1.0.0"
+  },
+  "signature": "n3mkE7CjzKvGkznIY2xO3VHQELjNCIigGMxkNVet96wfes8lzbd9C6xD1ayGolJz9A01zlc7AMOPVTGgE3PpCg=="
+}
