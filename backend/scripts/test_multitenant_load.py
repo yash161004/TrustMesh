@@ -16,14 +16,22 @@ from app.db import get_session_db
 # Mock dependency that reads org_id from the Bearer token
 async def mock_get_current_user(request: Request) -> User:
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer test-user-"):
-        org_id = auth.split("-")[-1]
-        user = User(id=auth.replace("Bearer ", ""), clerk_user_id=f"clerk_{org_id}", email=f"user@{org_id}.test", role="standard", org_id=org_id)
+    prefix = "Bearer test-user-"
+    if auth.startswith(prefix):
+        org_id = auth[len(prefix):]
+        user = User(id=f"test-user-{org_id}", clerk_user_id=f"clerk_{org_id}", email=f"user@{org_id}.test", role="standard", org_id=org_id)
         return user
     raise HTTPException(status_code=401, detail="Missing or invalid token")
 
-# Apply the global override
-app.dependency_overrides[get_current_user] = mock_get_current_user
+# Apply global overrides
+from app.auth.dependencies import get_current_user as auth_get_user
+from app.routes.sessions import get_current_user as sessions_get_user
+
+app.dependency_overrides[auth_get_user] = mock_get_current_user
+app.dependency_overrides[sessions_get_user] = mock_get_current_user
+
+from app.limiter import limiter
+limiter.enabled = False
 
 # Mock Trust Engine to avoid LLM rate limits during load testing
 from app.trust.engine import trust_engine
@@ -38,9 +46,16 @@ async def mock_evaluate_session(*args, **kwargs):
     )
 trust_engine.evaluate_session = mock_evaluate_session
 
-BASE_URL = "http://test/api/v1"
-ORGS = ["orgA", "orgB", "orgC"]
-SESSIONS_PER_ORG = 5
+import os
+
+ORGS_ENV = os.environ.get("LOAD_TEST_ORGS")
+if ORGS_ENV:
+    ORGS = [o.strip() for o in ORGS_ENV.split(",") if o.strip()]
+else:
+    ORGS = ["orgA", "orgB", "orgC"]
+
+SESSIONS_PER_ORG = int(os.environ.get("LOAD_TEST_SESSIONS_PER_ORG", "5"))
+CONCURRENCY_LIMIT = int(os.environ.get("LOAD_TEST_CONCURRENCY", "10"))
 
 async def run_session(client: httpx.AsyncClient, org_id: str, session_index: int) -> dict:
     headers = {"Authorization": f"Bearer test-user-{org_id}"}
@@ -64,11 +79,7 @@ async def run_session(client: httpx.AsyncClient, org_id: str, session_index: int
     resp = await client.post(f"{BASE_URL}/sessions/{session_id}/turn", json=turn_payload, headers=headers)
     resp.raise_for_status()
     
-    # Wait a bit for the background tasks to complete (mock provider is fast, 2-3s is enough)
-    await asyncio.sleep(3)
-    
-    logging.info(f"[{org_id}] Completed session {session_id}")
-    
+    logging.info(f"[{org_id}] Triggered turn for session {session_id}")
     return {"session_id": session_id, "org_id": org_id}
 
 async def verify_ledger(client: httpx.AsyncClient, session_info: dict):
@@ -76,10 +87,17 @@ async def verify_ledger(client: httpx.AsyncClient, session_info: dict):
     org_id = session_info["org_id"]
     headers = {"Authorization": f"Bearer test-user-{org_id}"}
     
-    resp = await client.get(f"{BASE_URL}/sessions/{session_id}/ledger", headers=headers)
-    resp.raise_for_status()
-    ledger_data = resp.json()
-    ledger_entries = ledger_data.get("entries", [])
+    ledger_entries = []
+    ledger_data = {}
+    for _ in range(20):
+        resp = await client.get(f"{BASE_URL}/sessions/{session_id}/ledger", headers=headers)
+        resp.raise_for_status()
+        ledger_data = resp.json()
+        ledger_entries = ledger_data.get("entries", [])
+        if len(ledger_entries) > 0:
+            break
+        await asyncio.sleep(0.5)
+        
     chain_valid = ledger_data.get("chain_valid", False)
     
     if len(ledger_entries) == 0:
@@ -114,6 +132,8 @@ async def run_session_limited(client: httpx.AsyncClient, org_id: str, session_in
     async with sem:
         return await run_session(client, org_id, session_index)
 
+BASE_URL = "http://test/api/v1"
+
 async def main():
     # Insert dummy users into the database
     from app.db import init_db, Organization, User
@@ -142,7 +162,7 @@ async def main():
         break
 
     transport = httpx.ASGITransport(app=app)
-    sem = asyncio.Semaphore(5) # limit concurrency to 5 to avoid pool exhaustion
+    sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
     async with httpx.AsyncClient(transport=transport, base_url="http://test", timeout=120.0) as client:
         # Create all sessions concurrently
         tasks = []
@@ -164,7 +184,8 @@ async def main():
             logging.error("Not all sessions completed successfully.")
             sys.exit(1)
             
-        logging.info(f"Successfully finished {len(sessions)} sessions.")
+        logging.info(f"Successfully finished {len(sessions)} session creations/turn requests. Waiting 5s for background turn completion...")
+        await asyncio.sleep(5)
         
         # Verify Ledgers serially to avoid overwhelming connection pool during reads
         logging.info("Verifying ledger integrity...")

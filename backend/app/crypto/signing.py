@@ -2,13 +2,14 @@
 TrustMesh Signing Module — Ed25519 key management and message signing.
 
 Provides deterministic serialization (canonical JSON), Ed25519 keypair
-generation/loading per agent role, and sign/verify helpers.
+generation/loading per agent role or per agent_id, and sign/verify helpers.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +28,9 @@ logger = logging.getLogger(__name__)
 
 _KEYS_DIR = Path(__file__).resolve().parent.parent.parent / ".keys"
 
-# Module-level cache: role -> (private_key, public_key_bytes)
+# Module-level cache: key_identifier -> (private_key, public_key_bytes)
 _keypairs: dict[str, tuple[Ed25519PrivateKey, bytes]] = {}
+_key_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -44,66 +46,83 @@ def canonical_json(obj: Any) -> bytes:
 # Keypair management
 # ---------------------------------------------------------------------------
 
-def _key_path(role: str) -> Path:
-    return _KEYS_DIR / f"{role}.key"
+def _key_path(identifier: str) -> Path:
+    safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in identifier)
+    return _KEYS_DIR / f"{safe_id}.key"
 
 
-def _pub_path(role: str) -> Path:
-    return _KEYS_DIR / f"{role}.pub"
+def _pub_path(identifier: str) -> Path:
+    safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in identifier)
+    return _KEYS_DIR / f"{safe_id}.pub"
 
 
 def generate_keypair(role: str) -> tuple[Ed25519PrivateKey, bytes]:
     """Generate a fresh Ed25519 keypair, persist it, and return (private_key, pub_bytes)."""
-    _KEYS_DIR.mkdir(parents=True, exist_ok=True)
+    return generate_keypair_for_identifier(role)
 
-    private_key = Ed25519PrivateKey.generate()
-    private_bytes = private_key.private_bytes(
-        encoding=Encoding.Raw,
-        format=PrivateFormat.Raw,
-        encryption_algorithm=NoEncryption(),
-    )
-    public_bytes = private_key.public_key().public_bytes(
-        encoding=Encoding.Raw,
-        format=PublicFormat.Raw,
-    )
 
-    _key_path(role).write_bytes(private_bytes)
-    _pub_path(role).write_bytes(public_bytes)
-    logger.info("Generated Ed25519 keypair for role=%s", role)
-
-    return private_key, public_bytes
+def generate_keypair_for_identifier(identifier: str) -> tuple[Ed25519PrivateKey, bytes]:
+    """Generate an Ed25519 keypair for role or agent_id under thread lock."""
+    return load_or_generate_keypair_for_identifier(identifier)
 
 
 def load_or_generate_keypair(role: str) -> tuple[Ed25519PrivateKey, bytes]:
     """Load an existing keypair from disk, or generate one if missing."""
-    if role in _keypairs:
-        return _keypairs[role]
-
-    priv_path = _key_path(role)
-    pub_path = _pub_path(role)
-
-    if priv_path.exists() and pub_path.exists():
-        private_key = Ed25519PrivateKey.from_private_bytes(priv_path.read_bytes())
-        public_bytes = pub_path.read_bytes()
-        logger.info("Loaded Ed25519 keypair for role=%s", role)
-    else:
-        private_key, public_bytes = generate_keypair(role)
-
-    _keypairs[role] = (private_key, public_bytes)
-    return private_key, public_bytes
+    return load_or_generate_keypair_for_identifier(role)
 
 
-def get_public_key_b64(role: str) -> str:
-    """Return the base64-encoded public key for *role*."""
+def load_or_generate_keypair_for_agent(agent_id: str) -> tuple[Ed25519PrivateKey, bytes]:
+    """Load an existing keypair for agent_id from disk, or generate one if missing (thread-safe)."""
+    return load_or_generate_keypair_for_identifier(agent_id)
+
+
+def load_or_generate_keypair_for_identifier(identifier: str) -> tuple[Ed25519PrivateKey, bytes]:
+    """Load an existing keypair for any identifier (role or agent_id) thread-safely."""
+    with _key_lock:
+        if identifier in _keypairs:
+            return _keypairs[identifier]
+
+        priv_path = _key_path(identifier)
+        pub_path = _pub_path(identifier)
+
+        if priv_path.exists() and pub_path.exists():
+            private_key = Ed25519PrivateKey.from_private_bytes(priv_path.read_bytes())
+            public_bytes = pub_path.read_bytes()
+            logger.info("Loaded Ed25519 keypair for identifier=%s", identifier)
+            _keypairs[identifier] = (private_key, public_bytes)
+            return private_key, public_bytes
+
+        # Inline generation inside _key_lock to guarantee zero race condition window
+        _KEYS_DIR.mkdir(parents=True, exist_ok=True)
+        private_key = Ed25519PrivateKey.generate()
+        private_bytes = private_key.private_bytes(
+            encoding=Encoding.Raw,
+            format=PrivateFormat.Raw,
+            encryption_algorithm=NoEncryption(),
+        )
+        public_bytes = private_key.public_key().public_bytes(
+            encoding=Encoding.Raw,
+            format=PublicFormat.Raw,
+        )
+
+        priv_path.write_bytes(private_bytes)
+        pub_path.write_bytes(public_bytes)
+        _keypairs[identifier] = (private_key, public_bytes)
+        logger.info("Generated Ed25519 keypair for identifier=%s", identifier)
+        return private_key, public_bytes
+
+
+def get_public_key_b64(role_or_agent_id: str) -> str:
+    """Return the base64-encoded public key for role or agent_id."""
     import base64
 
-    _, pub_bytes = load_or_generate_keypair(role)
+    _, pub_bytes = load_or_generate_keypair_for_identifier(role_or_agent_id)
     return base64.b64encode(pub_bytes).decode("ascii")
 
 
-def get_signing_key(role: str) -> Ed25519PrivateKey:
-    """Return the Ed25519 private key for *role*."""
-    private_key, _ = load_or_generate_keypair(role)
+def get_signing_key(role_or_agent_id: str) -> Ed25519PrivateKey:
+    """Return the Ed25519 private key for role or agent_id."""
+    private_key, _ = load_or_generate_keypair_for_identifier(role_or_agent_id)
     return private_key
 
 
@@ -111,15 +130,15 @@ def get_signing_key(role: str) -> Ed25519PrivateKey:
 # Sign / verify
 # ---------------------------------------------------------------------------
 
-def sign_message(message_dict: dict[str, Any], role: str) -> tuple[str, str]:
-    """Sign a message dict using the Ed25519 key for *role*.
+def sign_message(message_dict: dict[str, Any], role_or_agent_id: str) -> tuple[str, str]:
+    """Sign a message dict using the Ed25519 key for role or agent_id.
 
     Returns (signature_b64, public_key_b64).
     """
     import base64
 
-    private_key = get_signing_key(role)
-    _, public_bytes = load_or_generate_keypair(role)
+    private_key = get_signing_key(role_or_agent_id)
+    _, public_bytes = load_or_generate_keypair_for_identifier(role_or_agent_id)
 
     payload = canonical_json(message_dict)
     signature = private_key.sign(payload)
@@ -127,6 +146,11 @@ def sign_message(message_dict: dict[str, Any], role: str) -> tuple[str, str]:
         base64.b64encode(signature).decode("ascii"),
         base64.b64encode(public_bytes).decode("ascii"),
     )
+
+
+def sign_message_for_agent(message_dict: dict[str, Any], agent_id: str) -> tuple[str, str]:
+    """Sign a message dict using per-agent key for agent_id."""
+    return sign_message(message_dict, agent_id)
 
 
 def verify_signature(

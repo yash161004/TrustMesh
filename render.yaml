@@ -1,3 +1,9 @@
+databases:
+  - name: trustmesh-db
+    plan: starter
+    region: oregon
+    postgresMajorVersion: "15"
+
 services:
   - type: web
     name: trustmesh-backend
@@ -5,7 +11,9 @@ services:
     rootDir: backend
     envVars:
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:///./trustmesh.db
+        fromDatabase:
+          name: trustmesh-db
+          property: connectionString
       - key: ALLOWED_ORIGINS
         sync: false
       - key: AUTH_ENFORCED

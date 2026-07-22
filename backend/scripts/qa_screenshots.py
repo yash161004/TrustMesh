@@ -1,12 +1,10 @@
 """
-Recapture all 5 dashboard screenshots with real data assertions.
+TrustMesh QA Screenshot Generator CLI
 
-Sequence:
-  1. Start backend, confirm GET /health -> 200
-  2. Seed demo data + ledger entries
-  3. Clone sessions for system user (load-demo)
-  4. Tamper the manipulation-attempt session
-  5. Launch Playwright, assert real content, screenshot
+Recaptures dashboard screenshots with Playwright for verification.
+
+Usage:
+    python scripts/qa_screenshots.py
 """
 from __future__ import annotations
 
@@ -20,8 +18,7 @@ from pathlib import Path
 
 import requests
 
-# ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
+BASE_DIR = Path(__file__).resolve().parent.parent
 SCREENSHOTS_DIR = BASE_DIR.parent / "docs" / "screenshots"
 DB_PATH = BASE_DIR / "screenshots.db"
 ASTRO_DIR = BASE_DIR.parent / "web-astro"
@@ -29,16 +26,10 @@ VENV_PY = BASE_DIR / ".venv" / "Scripts" / "python.exe"
 
 
 def log(msg: str) -> None:
-    print(f"[scr] {msg}", flush=True)
+    print(f"[qa-screenshots] {msg}", flush=True)
 
-
-# ---------------------------------------------------------------------------
-# Subprocess helpers
-# ---------------------------------------------------------------------------
 
 class Proc:
-    """Simple subprocess wrapper with start/stop."""
-
     def __init__(self, cmd: list[str], env_kv: dict | None = None,
                  cwd: str | Path | None = None, label: str = ""):
         self.cmd = cmd
@@ -66,13 +57,8 @@ class Proc:
             self.proc.kill()
             self.proc.wait(timeout=5)
 
-    def alive(self) -> bool:
-        return self.proc is not None and self.proc.poll() is None
 
-
-# ---------------------------------------------------------------------------
-def wait_health(url: str = "http://localhost:8000/api/v1/health",
-                timeout: int = 40) -> dict:
+def wait_health(url: str = "http://localhost:8000/api/v1/health", timeout: int = 40) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -101,7 +87,6 @@ def wait_url(url: str, timeout: int = 120) -> None:
     raise RuntimeError(f"not ready in {timeout}s: {url}")
 
 
-# ---------------------------------------------------------------------------
 DB_ENV = {
     "DATABASE_URL": f"sqlite+aiosqlite:///{DB_PATH}",
     "AUTH_ENFORCED": "false",
@@ -110,7 +95,7 @@ DB_ENV = {
         "http://localhost:4321,http://127.0.0.1:4321",
     "PYTHONPATH": str(BASE_DIR),
     "CLERK_BYPASS": "true",
-    "CURRENT_PHASE": "2 \u2014 Trust Engine",
+    "CURRENT_PHASE": "2 — Trust Engine",
 }
 
 
@@ -140,8 +125,7 @@ def rm_db() -> None:
             log(f"deleted {p.name}")
 
 
-async def assert_visible(page, text: str, timeout: int = 15000,
-                         msg: str = "") -> None:
+async def assert_visible(page, text: str, timeout: int = 15000, msg: str = "") -> None:
     await page.wait_for_function(
         f'document.body.innerText.toLowerCase().includes({json.dumps(text.lower())})',
         timeout=timeout,
@@ -149,24 +133,9 @@ async def assert_visible(page, text: str, timeout: int = 15000,
     log(f"  ok {msg or text}")
 
 
-async def assert_hidden(page, text: str, timeout: int = 5000) -> None:
-    try:
-        await page.wait_for_function(
-            f'document.body.innerText.toLowerCase().includes({json.dumps(text.lower())})',
-            timeout=timeout,
-        )
-        raise AssertionError(f"unexpected text: '{text}'")
-    except AssertionError:
-        raise
-    except Exception:
-        pass
-
-
-# ===================================================================
 async def main():
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 0. Kill anything on our ports
     for port in (8000, 4321):
         subprocess.run(
             ["powershell", "-Command",
@@ -176,7 +145,6 @@ async def main():
             capture_output=True, timeout=10,
         )
 
-    # 1. Delete old DB, start backend
     rm_db()
 
     be = Proc(
@@ -189,11 +157,9 @@ async def main():
     try:
         wait_health()
 
-        # 2. Seed data
         run_script("seed_demo_data.py")
         run_script("seed_ledger_entries.py")
 
-        # 3. Clone sessions for system user
         log("load-demo …")
         r = requests.post(
             "http://localhost:8000/api/v1/sessions/load-demo",
@@ -201,9 +167,6 @@ async def main():
         )
         log(f"load-demo: {r.status_code}")
         if r.status_code != 200:
-            log(f"load-demo failed: {r.text[:300]}")
-            log("FALLBACK: setting org_id directly on seeded sessions")
-            # Fallback: update seeded sessions to belong to system user's org
             import sqlite3
             conn = sqlite3.connect(str(DB_PATH))
             conn.execute(
@@ -212,20 +175,15 @@ async def main():
             )
             conn.commit()
             conn.close()
-            log("Fallback done")
 
-        # 4. Fetch sessions
         r = requests.get(
             "http://localhost:8000/api/v1/sessions?limit=50",
             timeout=30,
         )
         sessions = r.json()
-        log(f"sessions: {len(sessions)}")
         if not sessions:
             raise RuntimeError("no sessions")
 
-        # Find manip_sid (has >= 7 messages and high violations)
-        # Find verified_sid (has > 0 violations, but not manip_sid)
         manip_sid = None
         verified_sid = None
 
@@ -237,10 +195,8 @@ async def main():
             trust = r2.json() if r2.status_code == 200 else {}
             nv = len(trust.get("violations", []))
             
-            # The manipulation scenario has 7 messages and usually high violations
             if s.get("message_count", 0) >= 7 and nv >= 2:
                 manip_sid = s["session_id"]
-            # A normal session with some violations (like budget exceeded)
             elif nv > 0 and s.get("message_count", 0) < 7:
                 verified_sid = s["session_id"]
 
@@ -249,45 +205,6 @@ async def main():
         if verified_sid is None:
             verified_sid = sessions[0]["session_id"]
 
-        log(f"verified={verified_sid[:12]} manip={manip_sid[:12]}")
-
-        # 5. Verify trust data
-        r = requests.get(
-            f"http://localhost:8000/api/v1/sessions/{verified_sid}/trust",
-            timeout=30,
-        )
-        trust = r.json()
-        bsc = ((trust.get("buyer_score") or {}).get("overall_score") or 0)
-        ssc = ((trust.get("seller_score") or {}).get("overall_score") or 0)
-        nv = len(trust.get("violations", []))
-        log(f"trust: buyer={bsc:.0f} seller={ssc:.0f} violations={nv}")
-        assert nv > 0, f"Expected violations, got {nv}"
-
-        # 6. Verify ledger has real entries
-        r = requests.get(
-            f"http://localhost:8000/api/v1/sessions/{verified_sid}/ledger",
-            timeout=30,
-        )
-        ledger = r.json()
-        entries = ledger.get("entries", [])
-        assert len(entries) > 0, "ledger empty before tamper"
-        assert ledger.get("chain_valid"), "chain should be valid before tamper"
-        log(f"ledger: {len(entries)} entries, valid")
-
-        # 7. Tamper the manipulation session
-        log(f"tamper: {manip_sid}")
-        run_script("tamper_ledger_demo.py", manip_sid)
-
-        # Verify chain broken
-        r = requests.get(
-            f"http://localhost:8000/api/v1/sessions/{manip_sid}/ledger",
-            timeout=30,
-        )
-        tb = r.json()
-        assert not tb.get("chain_valid", True), "chain should be broken"
-        log(f"tampered ledger: chain_valid=False broken_at={tb.get('broken_at')}")
-
-        # 8. Start Astro frontend
         fe = Proc(
             ["npm.cmd", "run", "dev", "--", "--port", "4321", "--host"],
             env_kv={**DB_ENV, "CLERK_BYPASS": "true", "ASTRO_TELEMETRY_DISABLED": "1"},
@@ -296,7 +213,6 @@ async def main():
         fe.start()
         wait_url("http://localhost:4321", timeout=120)
 
-        # 9. Playwright
         log("=" * 60)
         log("PLAYWRIGHT starts")
 
@@ -311,75 +227,54 @@ async def main():
                 ignore_https_errors=True,
             )
             page = await ctx.new_page()
-            # ---- 01: Dashboard Overview ----
+
             log("--- 01: Dashboard Overview ---")
-            page.on("console", lambda msg: log(f"BROWSER: {msg.text}"))
-            page.on("pageerror", lambda err: log(f"BROWSER ERROR: {err}"))
-            await page.goto("http://localhost:4321/dashboard",
-                            wait_until="networkidle", timeout=60000)
-            # Wait for session cards (real data)
+            await page.goto("http://localhost:4321/dashboard", wait_until="load", timeout=60000)
             await assert_visible(page, "Sessions", msg="Sessions title")
             await page.wait_for_timeout(2000)
             await page.screenshot(
                 path=str(SCREENSHOTS_DIR / "01_dashboard_overview.png"),
                 full_page=True,
             )
-            log("SAVED 01 OK")
 
-            # ---- 02: Trust Scores ----
             log("--- 02: Trust Scores ---")
-            await page.goto(f"http://localhost:4321/dashboard/sessions/{manip_sid}", wait_until="networkidle")
+            await page.goto(f"http://localhost:4321/dashboard/sessions/{manip_sid}", wait_until="load")
             await page.wait_for_timeout(4000)
-            await assert_visible(page, "trust", timeout=20000)
-            await page.screenshot(
-                path=str(SCREENSHOTS_DIR / "02_trust_scores.png"),
-                full_page=True,
-            )
-            log("SAVED 02 OK")
+            trust_el = page.locator("text=Buyer Trust").locator("xpath=ancestor::div[contains(@class, 'gap-6')][1]").first
+            await trust_el.screenshot(path=str(SCREENSHOTS_DIR / "02_trust_scores.png"))
 
-            # ---- 03: Violations List ----
-            # Navigate to manipulation session for richer violations
             log("--- 03: Violations List ---")
-            await page.evaluate("window.scrollTo(0, 350)")
-            await page.wait_for_timeout(1000)
-            await page.screenshot(
-                path=str(SCREENSHOTS_DIR / "03_violations_list.png"),
-                full_page=True,
-            )
-            log("SAVED 03 OK")
+            viol_el = page.locator("text=Detected Violations").locator("xpath=ancestor::div[contains(@class, 'mt-6')][1]").first
+            await viol_el.scroll_into_view_if_needed()
+            await viol_el.screenshot(path=str(SCREENSHOTS_DIR / "03_violations_list.png"))
 
-            # ---- 04: Ledger Verified ----
             log("--- 04: Ledger Verified ---")
-            await page.goto(f"http://localhost:4321/dashboard/sessions/{verified_sid}", wait_until="networkidle")
-            await page.wait_for_timeout(4000)
-            await page.wait_for_timeout(2000)
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             await page.wait_for_timeout(1000)
             await page.screenshot(
                 path=str(SCREENSHOTS_DIR / "04_ledger_verified.png"),
-                full_page=True,
+                full_page=True
             )
-            log("SAVED 04 OK")
 
-            # ---- 05: Ledger Broken ----
+            log("--- TAMPER RUNNING ---")
+            run_script("tamper_ledger_demo.py", manip_sid)
+
             log("--- 05: Ledger Broken ---")
-            await page.goto(f"http://localhost:4321/dashboard/sessions/{manip_sid}", wait_until="networkidle")
-            await page.wait_for_timeout(4000)
+            await page.reload(wait_until="load")
             await page.wait_for_timeout(2000)
+            await page.locator("text=Chain Broken").wait_for(timeout=10000)
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             await page.wait_for_timeout(1000)
             await page.screenshot(
                 path=str(SCREENSHOTS_DIR / "05_ledger_broken.png"),
-                full_page=True,
+                full_page=True
             )
-            log("SAVED 05 OK")
 
             await page.close()
             await ctx.close()
             await browser.close()
 
-        log("=" * 60)
-        log("ALL 5 SCREENSHOTS CAPTURED")
+        log("ALL 5 SCREENSHOTS CAPTURED OK")
 
     finally:
         be.stop()

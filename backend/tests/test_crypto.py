@@ -104,6 +104,69 @@ class TestSigning:
         _, pub_seller = load_or_generate_keypair("seller")
         assert pub_buyer != pub_seller
 
+    def test_two_agents_same_role_different_keys(self):
+        """(a) Two different agents with the same role get different keys."""
+        from app.crypto.signing import load_or_generate_keypair_for_agent
+        _, pub_agent1 = load_or_generate_keypair_for_agent("buyer-agent-001")
+        _, pub_agent2 = load_or_generate_keypair_for_agent("buyer-agent-002")
+        assert pub_agent1 != pub_agent2
+
+    def test_cross_agent_signature_verification_fails(self):
+        """(b) Message signed by agent A fails verify_signature against agent B public key."""
+        from app.crypto.signing import sign_message_for_agent
+        sig_a, pub_a = sign_message_for_agent(SAMPLE_MSG, "buyer-agent-001")
+        _, pub_b = sign_message_for_agent(SAMPLE_MSG, "buyer-agent-002")
+        assert verify_signature(SAMPLE_MSG, sig_a, pub_a) is True
+        assert verify_signature(SAMPLE_MSG, sig_a, pub_b) is False
+
+    def test_agent_card_org_verification(self):
+        """(c) verify_agent_card correctly rejects a card whose org_id doesn't match."""
+        from app.identity.agent_card import generate_agent_card, verify_agent_card, card_file_path
+        card, _ = generate_agent_card(
+            role="buyer",
+            agent_id="agent-org-test",
+            org_id="org_123",
+            owner_user_id="user_abc",
+        )
+        path = card_file_path("agent-org-test")
+        assert verify_agent_card(path, expected_org_id="org_123") is True
+        assert verify_agent_card(path, expected_org_id="org_999") is False
+
+    @pytest.mark.asyncio
+    @patch("app.session_manager.save_message")
+    @patch("app.session_manager.save_ledger_entry")
+    @patch("app.session_manager.get_ledger_sequence_count", return_value=0)
+    async def test_agent_card_cross_org_message_signing_blocked(self, mock_count, mock_ledger, mock_save):
+        """Mint a card under org_A, attempt _persist_message under org_B session, assert message signing is blocked."""
+        from app.identity.agent_card import generate_agent_card
+        from app.session_manager import session_manager
+        from app.models import NegotiationMessage, MessageType, NegotiationSession, ProposedItem
+
+        agent_id = "cross-org-agent-001"
+        generate_agent_card(role="buyer", agent_id=agent_id, org_id="org_A")
+
+        session_id = "test-session-cross-org"
+        session = NegotiationSession(
+            session_id=session_id,
+            buyer_agent_id=agent_id,
+            seller_agent_id="seller-agent-002",
+            org_id="org_B",
+        )
+        session_manager.sessions[session_id] = session
+
+        msg = NegotiationMessage(
+            message_type=MessageType.OFFER,
+            sender=agent_id,
+            proposed_items=[ProposedItem(sku="SKU-001", price=100.0, quantity=10)],
+            delivery_terms="FOB",
+            turn_number=1,
+        )
+
+        await session_manager._persist_message(session_id, msg)
+
+        assert msg.signature is None
+        assert msg.signer_public_key is None
+
 
 # ---------------------------------------------------------------------------
 # Ledger / hash-chain tests

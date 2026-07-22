@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +337,44 @@ class NegotiationMessage(BaseModel):
         description="Base64-encoded Ed25519 public key of the signer.",
     )
 
+    @property
+    def price(self) -> float:
+        if self.proposed_items:
+            return self.proposed_items[0].price
+        return 0.0
+
+    @property
+    def quantity(self) -> int:
+        if self.proposed_items:
+            return self.proposed_items[0].quantity
+        return 0
+
+    @computed_field
+    @property
+    def price(self) -> float:
+        return self.proposed_items[0].price if self.proposed_items else 0.0
+
+    @computed_field
+    @property
+    def quantity(self) -> int:
+        return self.proposed_items[0].quantity if self.proposed_items else 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def _convert_legacy_price_quantity(cls, data: any) -> any:
+        if isinstance(data, dict):
+            if not data.get("proposed_items"):
+                price = data.get("price")
+                quantity = data.get("quantity", 1)
+                sku = data.get("sku", "SKU-001")
+                if price is not None:
+                    data["proposed_items"] = [{
+                        "sku": sku,
+                        "price": float(price),
+                        "quantity": int(quantity),
+                    }]
+        return data
+
     @field_validator("timestamp", mode="before")
     @classmethod
     def _ensure_utc(cls, v: datetime) -> datetime:
@@ -473,6 +511,34 @@ class NegotiationScenario(BaseModel):
                     f"seller floor ({item.seller_floor_price:.2f}) — a deal is impossible."
                 )
         return self
+
+    @property
+    def product_name(self) -> str:
+        return self.line_items[0].product_name if self.line_items else ""
+
+    @property
+    def quantity(self) -> int:
+        return self.line_items[0].quantity if self.line_items else 1
+
+    @property
+    def market_reference_price(self) -> float:
+        return self.line_items[0].market_reference_price if self.line_items else 0.0
+
+    @property
+    def buyer_target_price(self) -> float:
+        return self.line_items[0].buyer_target_price if self.line_items else 0.0
+
+    @property
+    def buyer_budget_cap(self) -> float:
+        return self.line_items[0].buyer_budget_cap if self.line_items else 0.0
+
+    @property
+    def seller_asking_price(self) -> float:
+        return self.line_items[0].seller_asking_price if self.line_items else 0.0
+
+    @property
+    def seller_floor_price(self) -> float:
+        return self.line_items[0].seller_floor_price if self.line_items else 0.0
 
     model_config = {
         "json_schema_extra": {

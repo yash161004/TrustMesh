@@ -37,7 +37,8 @@ from .db import (
     update_agent_reputation_v2,
 )
 from .trust.engine import trust_engine
-from .crypto.signing import get_public_key_b64, sign_message
+from .crypto.signing import get_public_key_b64, sign_message, sign_message_for_agent
+from .identity.agent_card import get_or_create_agent_card, card_file_path, verify_agent_card
 from .crypto.ledger import _GENESIS_HASH, build_entry
 from .models import (
     AgentRole,
@@ -94,23 +95,29 @@ def _scenario_to_flat_context(s: NegotiationScenario) -> dict:
     """Flatten a NegotiationScenario into the context dict so that
     downstream consumers (the mock LLM, the agent's `_build_messages`)
     can access all scenario fields via the context."""
+    item0 = s.line_items[0] if s.line_items else None
     return {
         "scenario": s.model_dump(),
-        "scenario_product": s.product_name,
-        "scenario_quantity": s.quantity,
+        "scenario_product": item0.product_name if item0 else "",
+        "scenario_quantity": item0.quantity if item0 else 1,
         "scenario_currency": s.currency,
-        "scenario_market_ref": s.market_reference_price,
-        "scenario_buyer_cap": s.buyer_budget_cap,
-        "scenario_buyer_target": s.buyer_target_price,
-        "scenario_seller_floor": s.seller_floor_price,
-        "scenario_seller_ask": s.seller_asking_price,
+        "scenario_market_ref": item0.market_reference_price if item0 else 0.0,
+        "scenario_buyer_cap": item0.buyer_budget_cap if item0 else 0.0,
+        "scenario_buyer_target": item0.buyer_target_price if item0 else 0.0,
+        "scenario_seller_floor": item0.seller_floor_price if item0 else 0.0,
+        "scenario_seller_ask": item0.seller_asking_price if item0 else 0.0,
         "scenario_delivery_days": s.delivery_preference_days,
         "scenario_standard_delivery": s.standard_delivery_days,
         "scenario_expedited_days": s.expedited_delivery_days,
         "scenario_expedited_premium": s.expedited_premium_per_unit,
-        "starting_price": s.seller_asking_price,
-        "quantity": s.quantity,
-        "product": s.product_name,
+        "starting_price": item0.seller_asking_price if item0 else 0.0,
+        "quantity": item0.quantity if item0 else 1,
+        "product": item0.product_name if item0 else "",
+        "market_reference_price": item0.market_reference_price if item0 else 0.0,
+        "buyer_target_price": item0.buyer_target_price if item0 else 0.0,
+        "buyer_budget_cap": item0.buyer_budget_cap if item0 else 0.0,
+        "seller_asking_price": item0.seller_asking_price if item0 else 0.0,
+        "seller_floor_price": item0.seller_floor_price if item0 else 0.0,
     }
 
 
@@ -310,8 +317,8 @@ class SessionManager:
 
         async with session_lock:
             agents = self._get_agents(session_id)
-            stored_context = self.contexts.get(session_id, {})
             scenario = self.scenarios.get(session_id, DEFAULT_SCENARIO)
+            stored_context = {**_scenario_to_flat_context(scenario), **self.contexts.get(session_id, {})}
 
             if session.status == NegotiationSessionStatus.PENDING:
                 await self.start_session(session_id, context)
@@ -475,30 +482,44 @@ class SessionManager:
         # Determine agent role from sender
         session = self.sessions.get(session_id)
         role = None
+        org_id = getattr(session, "org_id", None) if session else None
+        user_id = getattr(session, "user_id", None) if session else None
+
         if session:
             if msg.sender == session.buyer_agent_id:
                 role = "buyer"
             elif msg.sender == session.seller_agent_id:
                 role = "seller"
 
-        # Sign the message if we have a role key
+        # Sign the message per-agent using AgentCard key
         signature_b64 = None
         public_key_b64 = None
-        if role:
+        if role and msg.sender:
             try:
+                get_or_create_agent_card(
+                    agent_id=msg.sender,
+                    role=role,
+                    org_id=org_id,
+                    owner_user_id=user_id,
+                )
+                # Enforce AgentCard verification and org-tenancy check at message time
+                c_path = card_file_path(msg.sender)
+                if not verify_agent_card(c_path, expected_org_id=org_id):
+                    raise ValueError(f"AgentCard org tenancy check failed for {msg.sender} (expected org_id={org_id})")
+
                 msg_dict = msg.model_dump(mode="json")
-                signature_b64, public_key_b64 = sign_message(msg_dict, role)
+                signature_b64, public_key_b64 = sign_message_for_agent(msg_dict, msg.sender)
                 msg.signature = signature_b64
                 msg.signer_public_key = public_key_b64
             except Exception as e:
                 logger.warning("Failed to sign message: %s", e)
 
+        items_json = [i.model_dump(mode="json") for i in msg.proposed_items] if hasattr(msg, "proposed_items") else []
         await save_message(
             session_id=session_id,
             message_type=msg.message_type.value,
             sender=msg.sender,
-            price=msg.price,
-            quantity=msg.quantity,
+            proposed_items=items_json,
             delivery_terms=msg.delivery_terms,
             timestamp=msg.timestamp,
             turn_number=msg.turn_number,

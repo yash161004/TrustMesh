@@ -2,15 +2,15 @@
 TrustMesh AgentCard — local implementation of the ERC-8004 AgentCard pattern.
 
 An AgentCard is a machine-readable identity descriptor that binds an agent's
-public key to its stated role, capabilities, and metadata.  This module
-generates, signs, persists, and verifies AgentCards on the local filesystem
-as a proof-of-concept analog of the on-chain ERC-8004 standard.
+public key to its stated role, capabilities, org tenancy, and metadata.
+This module generates, signs, persists, and verifies AgentCards on the local filesystem.
 """
 from __future__ import annotations
 
 import base64
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,12 +22,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from ..crypto.signing import canonical_json, load_or_generate_keypair
+from ..crypto.signing import (
+    canonical_json,
+    load_or_generate_keypair_for_agent,
+    load_or_generate_keypair_for_identifier,
+)
 
 logger = logging.getLogger(__name__)
 
 CARDS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "agent_cards"
 AGENT_CARD_VERSION = "1.0.0"
+
+_card_lock = threading.Lock()
 
 
 class AgentCard(BaseModel):
@@ -38,6 +44,8 @@ class AgentCard(BaseModel):
     display_name: str
     capabilities: list[str] = Field(default_factory=list)
     public_key: str
+    org_id: str | None = None
+    owner_user_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     version: str = AGENT_CARD_VERSION
 
@@ -46,15 +54,16 @@ class AgentCard(BaseModel):
         return canonical_json(self.model_dump(mode="json"))
 
 
-def sign_agent_card(card: AgentCard, role: str) -> tuple[AgentCard, str]:
+def sign_agent_card(card: AgentCard, role_or_agent_id: str | None = None) -> tuple[AgentCard, str]:
     """Sign an AgentCard's contents using the agent's Ed25519 private key.
 
-    Returns (card, signature_b64).  The private key is loaded by role name
-    from the existing .keys/ directory managed by app.crypto.signing.
+    Returns (card, signature_b64). The private key is loaded by agent_id or role name
+    from the existing .keys/ directory.
     """
     from ..crypto.signing import get_signing_key
 
-    private_key = get_signing_key(role)
+    identifier = role_or_agent_id or card.agent_id
+    private_key = get_signing_key(identifier)
     payload = card.serialize()
     sig_bytes = private_key.sign(payload)
     signature_b64 = base64.b64encode(sig_bytes).decode("ascii")
@@ -64,16 +73,12 @@ def sign_agent_card(card: AgentCard, role: str) -> tuple[AgentCard, str]:
 def card_file_path(agent_id: str) -> Path:
     """Return the local filesystem path for an AgentCard."""
     CARDS_DIR.mkdir(parents=True, exist_ok=True)
-    return CARDS_DIR / f"{agent_id}.json"
+    safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in agent_id)
+    return CARDS_DIR / f"{safe_id}.json"
 
 
 def write_agent_card(card: AgentCard, signature_b64: str) -> Path:
-    """Persist a signed AgentCard to a local JSON file.
-
-    The output file contains both the card payload and its detached
-    signature, mirroring the ERC-8004 convention of a resolvable
-    identity document.
-    """
+    """Persist a signed AgentCard to a local JSON file."""
     path = card_file_path(card.agent_id)
     payload = {
         "card": card.model_dump(mode="json"),
@@ -84,12 +89,12 @@ def write_agent_card(card: AgentCard, signature_b64: str) -> Path:
     return path
 
 
-def verify_agent_card(card_path: str | Path) -> bool:
-    """Verify that an AgentCard's signature matches its contents.
+def verify_agent_card(card_path: str | Path, expected_org_id: str | None = None) -> bool:
+    """Verify that an AgentCard's signature matches its contents and org tenancy.
 
     Loads the card file, recomputes the canonical JSON over the card
-    payload, and confirms the Ed25519 signature is valid against the
-    public key embedded in the card itself.
+    payload, confirms Ed25519 signature validity against the card's public key,
+    and optionally validates that org_id matches expected_org_id.
 
     Returns True if valid, False otherwise (never raises).
     """
@@ -102,6 +107,15 @@ def verify_agent_card(card_path: str | Path) -> bool:
         data = json.loads(path.read_text())
         card_data: dict[str, Any] = data["card"]
         signature_b64: str = data["signature"]
+
+        if expected_org_id is not None and card_data.get("org_id") != expected_org_id:
+            logger.warning(
+                "AgentCard org mismatch for %s: expected %s, got %s",
+                path,
+                expected_org_id,
+                card_data.get("org_id"),
+            )
+            return False
 
         # Recompute canonical bytes of the card payload
         card_bytes = canonical_json(card_data)
@@ -123,17 +137,12 @@ def generate_agent_card(
     role: str,
     agent_id: str | None = None,
     display_name: str | None = None,
+    org_id: str | None = None,
+    owner_user_id: str | None = None,
 ) -> tuple[AgentCard, str]:
-    """Factory: build, sign, and persist an AgentCard for *role*.
-
-    When *agent_id* is provided that value is used as the card's identity;
-    otherwise a new UUID is generated.  When *display_name* is provided
-    it overrides the role-based default name.
-
-    The card is returned alongside its base64-encoded signature so the
-    caller can inspect or wrap it further.
-    """
-    _, pub_bytes = load_or_generate_keypair(role)
+    """Factory: build, sign, and persist an AgentCard for *role* and *agent_id*."""
+    target_id = agent_id or str(uuid4())
+    _, pub_bytes = load_or_generate_keypair_for_agent(target_id)
     public_key_b64 = base64.b64encode(pub_bytes).decode("ascii")
 
     role_label = role.replace("_", " ").title()
@@ -141,17 +150,50 @@ def generate_agent_card(
 
     card_kwargs: dict[str, Any] = {
         "role": role,
+        "agent_id": target_id,
         "display_name": display_name or f"{role_label} Agent",
         "capabilities": capabilities,
         "public_key": public_key_b64,
+        "org_id": org_id,
+        "owner_user_id": owner_user_id,
     }
-    if agent_id:
-        card_kwargs["agent_id"] = agent_id
 
     card = AgentCard(**card_kwargs)
-    card, sig = sign_agent_card(card, role)
+    card, sig = sign_agent_card(card, target_id)
     write_agent_card(card, sig)
     return card, sig
+
+
+def get_or_create_agent_card(
+    agent_id: str,
+    role: str,
+    org_id: str | None = None,
+    owner_user_id: str | None = None,
+    display_name: str | None = None,
+) -> tuple[AgentCard, str]:
+    """Idempotently fetch or lazily provision an AgentCard under thread lock.
+
+    Ensures no concurrent duplicate card creation / key clobbering.
+    Binds org_id and owner_user_id from caller's authenticated context.
+    """
+    path = card_file_path(agent_id)
+    with _card_lock:
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                card = AgentCard(**data["card"])
+                sig = data["signature"]
+                return card, sig
+            except Exception as e:
+                logger.warning("Failed to load existing AgentCard for %s: %s", agent_id, e)
+
+        return generate_agent_card(
+            role=role,
+            agent_id=agent_id,
+            display_name=display_name,
+            org_id=org_id,
+            owner_user_id=owner_user_id,
+        )
 
 
 def _default_capabilities(role: str) -> list[str]:
