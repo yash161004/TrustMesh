@@ -1,0 +1,32 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import AdminStats from '../../components/AdminStats';
+import AdminViolations from '../../components/AdminViolations';
+import AdminTacticsChart from '../../components/AdminTacticsChart';
+import AdminTrustPanel from '../../components/AdminTrustPanel';
+import AdminLedger from '../../components/AdminLedger';
+---
+
+<Layout title="Admin Dashboard">
+  <main class="mx-auto max-w-5xl px-6 py-page">
+    <header class="mb-6">
+      <h1 class="text-xl font-semibold tracking-tight text-text-primary">Admin</h1>
+      <p class="mt-1 text-xs text-text-secondary">Cross-organization oversight</p>
+    </header>
+
+    <section class="mb-6">
+      <AdminStats client:load />
+    </section>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3 mb-6">
+      <div class="lg:col-span-2 space-y-6">
+        <AdminTacticsChart client:load />
+        <AdminViolations client:load />
+      </div>
+      <div class="space-y-6">
+        <AdminTrustPanel client:load />
+        <AdminLedger client:load />
+      </div>
+    </div>
+  </main>
+</Layout>

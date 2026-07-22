@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ..llm_client import LLMClient
-from ..models import AgentRole, MessageType, NegotiationMessage, NegotiationScenario
+from ..models import AgentRole, MessageType, NegotiationMessage, NegotiationScenario, ProposedItem
 from .base import BaseAgent
 
 
@@ -42,36 +42,43 @@ class BuyerAgent(BaseAgent):
     @property
     def system_prompt(self) -> str:
         s = self.scenario
+        
+        items_desc = "\n".join([
+            f"- {i.quantity} {i.unit} of {i.product_name} (SKU: {i.sku}). Max budget: {s.currency}{i.buyer_budget_cap:.2f}/unit. Market ref: {s.currency}{i.market_reference_price:.2f}/unit."
+            for i in s.line_items
+        ])
+        
         expedited_section = ""
         if s.expedited_delivery_days and s.expedited_premium_per_unit:
             expedited_section = (
                 f"- If faster delivery is needed, expedited ({s.expedited_delivery_days} days) "
                 f"is available at +{s.currency}{s.expedited_premium_per_unit:.2f}/unit\n"
             )
-        return f"""You are a Buyer agent in a B2B procurement negotiation for {s.product_name.upper()}.
+            
+        return f"""You are a Buyer agent in a B2B procurement negotiation.
 
 Your objectives:
-- Secure the best possible price — your max budget is {s.currency}{s.buyer_budget_cap:.2f}/unit
+- Secure the best possible prices across all items without exceeding max budgets.
 - Get delivery within {s.delivery_preference_days} days (faster is better, but cost matters more)
 - Ensure quality and product standards
 - Build a long-term supplier relationship
 
-The market reference price for {s.product_name} is {s.currency}{s.market_reference_price:.2f}/unit.
-You are negotiating for {s.quantity} units.
+You are negotiating for the following items:
+{items_desc}
 
 Negotiation strategy:
-1. Start with an offer around {s.currency}{s.buyer_target_price:.2f}/unit (below your {s.currency}{s.buyer_budget_cap:.2f} max)
-2. Counter with small increases (5-8%) each turn
-3. Trade faster delivery for slightly higher price if needed
-4. Emphasize volume ({s.quantity} units) and repeat business potential
-5. Know when to walk away if price exceeds {s.currency}{s.buyer_budget_cap:.2f}/unit
-6. Consider delivery terms: {s.delivery_preference_days}-day delivery is preferred, but you can stretch to longer for a better price
+1. Start with conservative offers below your max budget.
+2. Counter with small increases (5-8%) each turn.
+3. Trade faster delivery for slightly higher price if needed.
+4. Know when to walk away if price exceeds budget cap for any item.
+5. Consider delivery terms: {s.delivery_preference_days}-day delivery is preferred.
 {expedited_section}
 Response format (JSON only):
 {{
     "message_type": "OFFER" | "COUNTER_OFFER" | "ACCEPT" | "REJECT",
-    "price": <number>,
-    "quantity": {s.quantity},
+    "proposed_items": [
+        {{ "sku": "<sku>", "price": <number>, "quantity": <number> }}
+    ],
     "delivery_terms": "<delivery time in days, payment terms>",
     "notes": "<your reasoning including delivery considerations>"
 }}
@@ -82,15 +89,21 @@ Be professional, data-driven, and strategic. Prices in {s.currency}."""
         """Create the buyer's initial offer based on scenario."""
         self.turn_number = 1
         s = self.scenario
-        # 12% below market reference price
-        starting_price = s.market_reference_price * 0.88
-        quantity = context.get("quantity", s.quantity)
+        
+        proposed_items = []
+        notes_items = []
+        for item in s.line_items:
+            # 12% below market reference price
+            starting_price = item.market_reference_price * 0.88
+            proposed_items.append(
+                ProposedItem(sku=item.sku, price=round(starting_price, 2), quantity=item.quantity)
+            )
+            notes_items.append(f"{item.quantity} {item.unit} of {item.product_name}")
 
         message = NegotiationMessage(
             message_type=MessageType.OFFER,
             sender=self.agent_id,
-            price=round(starting_price, 2),
-            quantity=quantity,
+            proposed_items=proposed_items,
             delivery_terms=(
                 f"Delivery within {s.delivery_preference_days} days, Net-30 payment, "
                 "FOB destination, quality inspection on arrival"
@@ -98,30 +111,23 @@ Be professional, data-driven, and strategic. Prices in {s.currency}."""
             timestamp=datetime.now(timezone.utc),
             turn_number=self.turn_number,
             notes=(
-                f"Initial offer for {int(quantity)} {s.product_name}. "
-                f"Requesting delivery within {s.delivery_preference_days} days. "
-                f"Price based on market research ({s.currency} {s.market_reference_price:.2f}/unit reference) for bulk order."
+                f"Initial offer for {', '.join(notes_items)}. "
+                f"Requesting delivery within {s.delivery_preference_days} days."
             ),
         )
 
         self.add_message(message)
         return message
 
-    def should_accept(self, price: float, quantity: int) -> bool:
+    def should_accept(self, proposed_items: list[ProposedItem]) -> bool:
         """Determine if the buyer should accept the current offer."""
         s = self.scenario
-        if price <= s.buyer_target_price:
-            return True
-        if price <= s.buyer_budget_cap and quantity >= s.quantity:
-            return True
-        return False
-
-    def calculate_max_counter(self) -> float:
-        """Calculate the maximum price the buyer is willing to counter."""
-        s = self.scenario
-        if not self.history:
-            return s.buyer_budget_cap
-
-        last_offer = self.history[-1]
-        increment = (s.buyer_budget_cap - s.buyer_target_price) * 0.15
-        return min(last_offer.price + increment, s.buyer_budget_cap)
+        sku_to_item = {i.sku: i for i in s.line_items}
+        
+        for p_item in proposed_items:
+            s_item = sku_to_item.get(p_item.sku)
+            if not s_item:
+                continue
+            if p_item.price > s_item.buyer_budget_cap:
+                return False
+        return True

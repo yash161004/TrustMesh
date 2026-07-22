@@ -1,0 +1,19 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import LaunchForm from '../../components/LaunchForm';
+
+const clerkBypass = process.env.CLERK_BYPASS === 'true';
+---
+
+<Layout title="New Session">
+  <main class="mx-auto max-w-2xl px-6 py-page">
+    <a
+      href="/dashboard"
+      class="mb-6 inline-block text-sm text-text-secondary transition-colors duration-150 hover:text-text-primary"
+    >
+      &larr; Back to Sessions
+    </a>
+    <h1 class="mb-8 text-xl font-semibold tracking-tight text-text-primary">Launch Negotiation</h1>
+    <LaunchForm client:load clerkBypass={clerkBypass} />
+  </main>
+</Layout>

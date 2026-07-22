@@ -31,12 +31,12 @@ async def test_save_and_load_message():
         session_id=session_id,
         message_type="OFFER",
         sender="buyer1",
-        price=100.0,
-        quantity=10,
+        proposed_items=[{"sku": "SKU-001", "price": 100.0, "quantity": 10}],
         delivery_terms="Fast",
         timestamp=datetime.now(timezone.utc),
         turn_number=1
     )
     msgs = await load_messages(session_id)
     assert len(msgs) == 1
-    assert msgs[0]["price"] == 100.0
+    assert "proposed_items" in msgs[0]
+    assert msgs[0]["proposed_items"][0]["price"] == 100.0

@@ -1,0 +1,257 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="TrustMesh | Cryptographic Trust for AI Agents">
+  <!-- Force public theme variables for the landing page -->
+  <div class="bg-public-bg min-h-screen text-public-text-primary font-sans w-full absolute inset-0 z-50 overflow-y-auto">
+    
+    <!-- Top Navigation (responsive) -->
+    <nav aria-label="Global" class="max-w-7xl mx-auto px-6 py-4 border-b border-public-border/50 relative">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+          <img src="/favicon.svg" alt="TrustMesh Logo" class="w-8 h-8 text-public-brand" />
+          <span class="text-xl font-extrabold tracking-tight text-public-text-primary">TrustMesh</span>
+        </div>
+        
+        <!-- Mobile Menu Button -->
+        <button id="mobile-menu-btn" class="sm:hidden p-2 text-public-text-secondary hover:text-public-text-primary">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        </button>
+
+        <!-- Desktop Nav -->
+        <div class="hidden sm:flex items-center space-x-6 text-sm font-medium">
+          <a href="#features" class="text-public-text-secondary hover:text-public-brand transition-colors">Features</a>
+          <a href="#pricing" class="text-public-text-secondary hover:text-public-brand transition-colors">Pricing</a>
+          <a href="/dashboard" class="px-5 py-2.5 bg-public-brand text-white rounded-card hover:bg-public-brand-hover transition-colors shadow-sm">Go to Dashboard</a>
+        </div>
+      </div>
+      
+      <!-- Mobile Nav Dropdown -->
+      <div id="mobile-menu" class="hidden sm:hidden absolute top-full left-0 w-full bg-public-bg border-b border-public-border/50 py-4 px-6 shadow-lg z-50 flex flex-col space-y-4">
+        <a href="#features" class="block text-public-text-secondary hover:text-public-brand font-medium">Features</a>
+        <a href="#pricing" class="block text-public-text-secondary hover:text-public-brand font-medium">Pricing</a>
+        <a href="/dashboard" class="block px-5 py-2.5 bg-public-brand text-white rounded-card hover:bg-public-brand-hover transition-colors shadow-sm text-center font-medium">Go to Dashboard</a>
+      </div>
+    </nav>
+    <script>
+      const btn = document.getElementById('mobile-menu-btn');
+      const menu = document.getElementById('mobile-menu');
+      if(btn && menu) {
+        btn.addEventListener('click', () => {
+          menu.classList.toggle('hidden');
+        });
+      }
+    </script>
+
+    <main>
+    <!-- 1. HERO SECTION -->
+    <section class="max-w-7xl mx-auto px-6 pt-24 pb-20 lg:pt-32 lg:pb-28">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <!-- Copy -->
+        <div>
+          <div class="inline-block px-4 py-1.5 rounded-pill bg-public-brand/10 text-public-brand font-semibold text-sm mb-6 border border-public-brand/20">
+            The impartial referee for AI commerce
+          </div>
+          <h1 class="text-5xl lg:text-6xl font-extrabold tracking-tight mb-6 leading-tight">
+            Automated deals. <br/>
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-public-accent-gradient-from to-public-accent-gradient-to">
+              Cryptographic trust.
+            </span>
+          </h1>
+          <p class="text-xl text-public-text-secondary mb-10 leading-relaxed max-w-xl">
+            TrustMesh is a platform where AI negotiation agents transact on your behalf. Every message, tactic, and outcome is cryptographically verified and scored for manipulation — so you can trust an automated deal the way you'd trust a human one.
+          </p>
+          <div class="flex flex-col sm:flex-row gap-4">
+            <a href="/sign-up" class="px-8 py-4 bg-public-brand text-white rounded-card font-bold shadow-lg hover:bg-public-brand-hover hover:shadow-xl transition-all text-center">
+              Start Your First Negotiation
+            </a>
+            <a href="#how-it-works" class="px-8 py-4 bg-public-surface text-public-text-primary rounded-card font-bold border border-public-border hover:border-public-brand/50 transition-all text-center">
+              How It Works
+            </a>
+          </div>
+        </div>
+        
+        <!-- Visual Mockup (Dashboard Register inside Public Hero) -->
+        <div class="relative w-full h-[450px] bg-dash-bg rounded-xl border-2 border-dash-border shadow-2xl overflow-hidden flex flex-col font-mono text-dash-text-primary">
+          <div class="h-10 bg-dash-surface-elevated border-b border-dash-border flex items-center px-4 space-x-2">
+            <div class="w-3 h-3 rounded-full bg-[#ef4444]"></div>
+            <div class="w-3 h-3 rounded-full bg-[#f59e0b]"></div>
+            <div class="w-3 h-3 rounded-full bg-[#10b981]"></div>
+            <div class="ml-4 text-xs text-dash-text-secondary font-sans tracking-wide">session_id: 0xA7...9B2F</div>
+          </div>
+          <div class="p-6 flex-1 flex flex-col space-y-6">
+            <div class="flex justify-between items-center pb-4 border-b border-dash-border">
+              <span class="text-sm text-dash-text-secondary uppercase tracking-widest">Network Consensus</span>
+              <span class="text-xs px-2 py-1 bg-status-success/20 text-status-success rounded border border-status-success/50">VERIFIED HASH CHAIN</span>
+            </div>
+            
+            <div class="bg-dash-surface rounded-lg p-4 border border-dash-border">
+              <div class="text-xs text-dash-text-secondary mb-2">Agent Message [Buyer]</div>
+              <div class="text-sm leading-relaxed">"If we can't lock in the 15% volume discount today, our finance team will pull the contract entirely."</div>
+            </div>
+            
+            <div class="flex justify-between items-end mt-auto">
+              <div>
+                <div class="text-xs text-dash-text-secondary mb-1">Manipulation Analysis</div>
+                <div class="text-sm text-status-warning font-semibold">Tactic Flagged: Feigned Urgency</div>
+              </div>
+              <div class="text-right">
+                <div class="text-xs text-dash-text-secondary mb-1">Continuous Evaluation</div>
+                <a href="/eval" class="text-sm font-bold text-public-accent hover:underline">View Live Benchmarks &rarr;</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. SOCIAL PROOF (Placeholder) -->
+    <section class="py-10 border-y border-public-border bg-public-surface/50">
+      <div class="max-w-7xl mx-auto px-6 text-center">
+        <p class="text-sm font-bold text-public-text-secondary uppercase tracking-widest mb-6">Securing autonomous negotiations for</p>
+        <div class="flex justify-center items-center gap-12 opacity-40 grayscale">
+          <!-- Placeholder Logos -->
+          <div class="w-32 h-8 bg-public-border rounded"></div>
+          <div class="w-32 h-8 bg-public-border rounded hidden sm:block"></div>
+          <div class="w-32 h-8 bg-public-border rounded hidden md:block"></div>
+          <div class="w-32 h-8 bg-public-border rounded hidden lg:block"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. PROBLEM / SOLUTION -->
+    <section class="py-24 bg-public-surface">
+      <div class="max-w-4xl mx-auto px-6 text-center">
+        <h2 class="text-4xl font-bold mb-6">AI agents negotiate faster than humans can read. <br/><span class="text-public-brand">That's a security nightmare.</span></h2>
+        <p class="text-lg text-public-text-secondary mb-12">
+          When autonomous models transact directly via APIs, subtle psychological manipulation, bait-and-switch tactics, and policy deviations happen in milliseconds. TrustMesh intercepts, evaluates, and cryptographically signs every step of the deal so you never lose oversight.
+        </p>
+      </div>
+    </section>
+
+    <!-- 4. HOW IT WORKS -->
+    <section id="how-it-works" class="py-24 bg-public-bg">
+      <div class="max-w-7xl mx-auto px-6">
+        <h2 class="text-3xl font-bold text-center mb-16">How TrustMesh Protects Your Deals</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div class="p-8 bg-public-surface rounded-card border border-public-border shadow-sm">
+            <div class="w-12 h-12 bg-public-brand/10 text-public-brand rounded-full flex items-center justify-center font-bold text-xl mb-6">1</div>
+            <h3 class="text-xl font-bold mb-3">Deploy Autonomous Agents</h3>
+            <p class="text-public-text-secondary">TrustMesh runs its own built-in Buyer and Seller agents. You set the negotiation parameters, and the agents execute the deal, demonstrating the verification layer as a proof of concept.</p>
+          </div>
+          <div class="p-8 bg-public-surface rounded-card border border-public-border shadow-sm relative top-0 md:top-8">
+            <div class="w-12 h-12 bg-public-brand/10 text-public-brand rounded-full flex items-center justify-center font-bold text-xl mb-6">2</div>
+            <h3 class="text-xl font-bold mb-3">Real-time Evaluation</h3>
+            <p class="text-public-text-secondary">Our LLM-based engine evaluates every message for policy deviations, commitment consistency, and psychological manipulation.</p>
+          </div>
+          <div class="p-8 bg-public-surface rounded-card border border-public-border shadow-sm relative top-0 md:top-16">
+            <div class="w-12 h-12 bg-public-brand/10 text-public-brand rounded-full flex items-center justify-center font-bold text-xl mb-6">3</div>
+            <h3 class="text-xl font-bold mb-3">Cryptographic Logging</h3>
+            <p class="text-public-text-secondary">Every turn is hashed and signed with Ed25519 keys, creating an immutable audit trail of the negotiation that cannot be altered.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. BENTO GRID FEATURES -->
+    <section id="features" class="py-24 bg-public-surface border-t border-public-border">
+      <div class="max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-4xl font-bold mb-4">The Complete Verification Layer</h2>
+          <p class="text-public-text-secondary text-lg">Everything you need to deploy autonomous purchasing agents safely.</p>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Large Span -->
+          <div class="lg:col-span-2 p-10 bg-gradient-to-br from-public-bg to-public-surface rounded-xl border border-public-border shadow-sm">
+            <h3 class="text-2xl font-bold mb-3">Immutable Ed25519 Ledgers</h3>
+            <p class="text-public-text-secondary max-w-md">Our core differentiator. We don't just log messages; we generate a continuous SHA-256 hash chain signed with Ed25519 keys, ensuring neither party can retroactively alter the agreed terms.</p>
+          </div>
+          
+          <div class="p-10 bg-public-bg rounded-xl border border-public-border shadow-sm">
+            <h3 class="text-xl font-bold mb-3">Manipulation Detection</h3>
+            <p class="text-public-text-secondary text-sm">Advanced LLM scoring calibrated to detect false urgency, authority overrides, and trust exploitation.</p>
+          </div>
+
+          <div class="p-10 bg-public-bg rounded-xl border border-public-border shadow-sm">
+            <h3 class="text-xl font-bold mb-3">Policy Enforcement</h3>
+            <p class="text-public-text-secondary text-sm">Strict adherence to numerical constraints. If an agent offers above the maximum budget, the mesh flags the deviation instantly.</p>
+          </div>
+
+          <div class="lg:col-span-2 p-10 bg-public-bg rounded-xl border border-public-border shadow-sm">
+            <h3 class="text-2xl font-bold mb-3">Commitment Consistency</h3>
+            <p class="text-public-text-secondary max-w-md">No more bait-and-switch. The engine forces agents to state explicit reasoning for changing previously agreed-upon numbers, verifying the delta against the historical record.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. PRICING -->
+    <section id="pricing" class="py-24 bg-public-bg border-t border-public-border">
+      <div class="max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-4xl font-bold mb-4">Transparent Pricing for AI Teams</h2>
+          <p class="text-public-text-secondary text-lg">Start securing your agents today.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <!-- Free -->
+          <div class="p-8 bg-public-surface rounded-card border border-public-border">
+            <div class="text-xl font-bold mb-2">Free</div>
+            <div class="text-4xl font-extrabold mb-6">$0</div>
+            <ul class="space-y-4 mb-8 text-sm text-public-text-secondary">
+              <li class="flex items-center gap-3">✓ Up to 100 sessions/month</li>
+              <li class="flex items-center gap-3">✓ Standard Manipulation Detector</li>
+              <li class="flex items-center gap-3">✓ Self-consistency verified classification</li>
+            </ul>
+            <a href="/sign-up" class="block w-full py-3 text-center rounded-card border border-public-border font-bold hover:bg-public-bg transition-colors">Start Free</a>
+          </div>
+
+          <!-- Pro -->
+          <div class="p-8 bg-public-surface rounded-card border-2 border-public-brand shadow-lg relative transform md:-translate-y-4">
+            <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-public-brand text-white px-3 py-1 rounded-full text-xs font-bold uppercase">Recommended</div>
+            <div class="text-xl font-bold mb-2">Pro</div>
+            <div class="text-4xl font-extrabold mb-6">$49<span class="text-lg font-normal text-public-text-secondary">/mo</span></div>
+            <ul class="space-y-4 mb-8 text-sm text-public-text-secondary">
+              <li class="flex items-center gap-3">✓ Unlimited session history</li>
+              <li class="flex items-center gap-3">✓ Priority API routing</li>
+              <li class="flex items-center gap-3">✓ Advanced analytics dashboard</li>
+            </ul>
+            <a href="/sign-up" class="block w-full py-3 text-center bg-public-brand text-white rounded-card font-bold hover:bg-public-brand-hover transition-colors">Upgrade to Pro</a>
+          </div>
+
+          <!-- Enterprise -->
+          <div class="p-8 bg-public-surface rounded-card border border-public-border">
+            <div class="text-xl font-bold mb-2">Enterprise</div>
+            <div class="text-4xl font-extrabold mb-6">Custom</div>
+            <ul class="space-y-4 mb-8 text-sm text-public-text-secondary">
+              <li class="flex items-center gap-3">✓ Custom policy logic</li>
+              <li class="flex items-center gap-3">✓ Multi-model consensus (Future)</li>
+              <li class="flex items-center gap-3">✓ Dedicated fleet analytics</li>
+            </ul>
+            <a href="#" class="block w-full py-3 text-center rounded-card border border-public-border font-bold hover:bg-public-bg transition-colors">Contact Sales</a>
+          </div>
+        </div>
+      </div>
+    </section>
+    </main>
+
+    <!-- 7. FOOTER -->
+    <footer class="bg-public-surface border-t border-public-border py-12">
+      <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center">
+        <div class="flex items-center space-x-2 mb-4 md:mb-0">
+          <img src="/favicon.svg" alt="TrustMesh Logo" class="w-6 h-6 text-public-brand grayscale" />
+          <span class="font-bold text-public-text-secondary">TrustMesh</span>
+        </div>
+        <div class="flex space-x-6 text-sm text-public-text-secondary">
+          <a href="#" class="hover:text-public-text-primary">Documentation</a>
+          <a href="#" class="hover:text-public-text-primary">API Reference</a>
+          <a href="#" class="hover:text-public-text-primary">Privacy</a>
+          <a href="#" class="hover:text-public-text-primary">Terms</a>
+        </div>
+      </div>
+    </footer>
+    
+  </div>
+</Layout>

@@ -4,11 +4,11 @@
 
 **Anchor Enabled during run:** True
 
-**Brier Score:** [Pending re-validation post-architecture-fix, see /eval]*
+**Brier Score:** 0.2161/0.2381 (Regression)*
 
-**Expected Calibration Error (ECE - 10 bins):** [Pending re-validation post-architecture-fix, see /eval]*
+**Expected Calibration Error (ECE - 10 bins):** 0.2161/0.2381 (Regression)*
 
-*\*Note: Earlier prompt versions achieved strong binary verdicts and well-calibrated confidence scores (Brier 0.0554, ECE 0.0728) after correcting a scoring methodology bug. However, these figures were measured against a 27-scenario Tier 1 baseline using a retired prompt architecture. The current detector uses a 10-example, contamination-checked few-shot set combined with self-consistency sampling. Performance is being re-validated against the 8-scenario adversarial holdout; see the live results at /eval. The old 0.0554/0.0728 figures describe a retired prompt version and should not be read as current.*
+*\**Note: Current architecture (self-consistency sampling + 10-example contamination-checked few-shot prompt) shows a recall regression to 0.67 (2 consistent runs, identical false negatives both times: 'The Q4 Rush' and 'The Exploding Offer', both Urgency-tactic scenarios) versus the pre-expansion self-consistency baseline of 1.00/1.00 (5 runs). Working hypothesis: the 10-example prompt, rebalanced during a contamination fix, no longer includes an Urgency-category anchor example, which may be diluting the model's attention away from that tactic category. This is under active investigation, not yet confirmed. The CI gate (recall < 0.80) correctly caught this regression before it reached production — see docs/EVAL_RESULTS.md for the full run history.*
 
 ### What do these mean?
 - **Brier Score (0.0 to 1.0):** Measures the mean squared difference between predicted probability and the actual outcome. Lower is better. A score near 0 indicates perfect accuracy and confidence.

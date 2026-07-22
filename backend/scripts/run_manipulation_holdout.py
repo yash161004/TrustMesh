@@ -219,6 +219,10 @@ async def run_holdout():
     import datetime
     import subprocess
     
+    if (tp + fp + tn + fn) == 0:
+        print("\nERROR: All scenarios degraded or holdout set empty. Aborting before writing N/A to results log.")
+        sys.exit(1)
+    
     docs_dir = Path(__file__).parent.parent.parent / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
     eval_file = docs_dir / "EVAL_RESULTS.md"

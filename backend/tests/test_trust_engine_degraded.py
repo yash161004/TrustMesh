@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from app.trust.engine import trust_engine
-from app.models import NegotiationMessage, NegotiationScenario, MessageType
+from app.models import NegotiationMessage, NegotiationScenario, LineItem, ProposedItem, MessageType
 from app.trust.models import SessionEventType
 
 @pytest.mark.asyncio
@@ -17,21 +17,26 @@ async def test_trust_engine_degraded():
             NegotiationMessage(
                 message_type=MessageType.OFFER,
                 sender="buyer-1",
-                price=100.0,
-                quantity=10,
+                proposed_items=[ProposedItem(sku="SKU-TEST", price=100.0, quantity=10)],
                 delivery_terms="Net 30",
                 turn_number=1
             )
         ]
         scenario = NegotiationScenario(
-            product_name="Widgets",
-            quantity=10,
             currency="USD",
-            market_reference_price=120,
-            buyer_budget_cap=150,
-            buyer_target_price=100,
-            seller_floor_price=80,
-            seller_asking_price=130,
+            line_items=[
+                LineItem(
+                    sku="SKU-TEST",
+                    product_name="Widgets",
+                    quantity=10,
+                    unit="units",
+                    market_reference_price=120,
+                    buyer_target_price=100,
+                    buyer_budget_cap=150,
+                    seller_asking_price=130,
+                    seller_floor_price=80,
+                )
+            ],
             delivery_preference_days=30,
             standard_delivery_days=30
         )

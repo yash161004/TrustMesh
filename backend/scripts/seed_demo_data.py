@@ -26,7 +26,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base, SessionRecord, MessageRecord, LedgerEntryRecord, TrustReportRecord
-from app.models import DEFAULT_SCENARIO
+from app.models import DEFAULT_SCENARIO, LineItem, ProposedItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,8 +68,7 @@ def _msg(
     turn: int,
     sender: str,
     msg_type: str,
-    price: float,
-    quantity: int = 100,
+    proposed_items: list[ProposedItem],
     delivery: str = "Net-30, FOB destination",
     notes: str | None = None,
 ) -> MessageRecord:
@@ -78,8 +77,7 @@ def _msg(
         turn_number=turn,
         sender=sender,
         message_type=msg_type,
-        price=price,
-        quantity=quantity,
+        proposed_items_json=json.dumps([item.model_dump() for item in proposed_items]),
         delivery_terms=delivery,
         timestamp=_ts(turn),
         notes=notes,
@@ -93,39 +91,67 @@ def _msg(
 SCENARIO_DEFAULT = DEFAULT_SCENARIO
 
 SCENARIO_BUDGET_EXCEEDED = DEFAULT_SCENARIO.model_copy(update={
-    "product_name": "Ergonomic desk lamps",
-    "market_reference_price": 350.0,
-    "buyer_budget_cap": 400.0,
-    "buyer_target_price": 320.0,
-    "seller_floor_price": 300.0,
-    "seller_asking_price": 450.0,
+    "line_items": [
+        LineItem(
+            sku="SKU-002",
+            product_name="Ergonomic desk lamps",
+            quantity=100,
+            unit="units",
+            market_reference_price=350.0,
+            buyer_target_price=320.0,
+            buyer_budget_cap=400.0,
+            seller_asking_price=450.0,
+            seller_floor_price=300.0,
+        )
+    ]
 })
 
 SCENARIO_BROKEN_COMMITMENT = DEFAULT_SCENARIO.model_copy(update={
-    "product_name": "Wireless keyboards",
-    "market_reference_price": 280.0,
-    "buyer_budget_cap": 320.0,
-    "buyer_target_price": 250.0,
-    "seller_floor_price": 240.0,
-    "seller_asking_price": 380.0,
+    "line_items": [
+        LineItem(
+            sku="SKU-003",
+            product_name="Wireless keyboards",
+            quantity=100,
+            unit="units",
+            market_reference_price=280.0,
+            buyer_target_price=250.0,
+            buyer_budget_cap=320.0,
+            seller_asking_price=380.0,
+            seller_floor_price=240.0,
+        )
+    ]
 })
 
 SCENARIO_CURRENCY_SWAP = DEFAULT_SCENARIO.model_copy(update={
-    "product_name": "USB-C hubs",
-    "market_reference_price": 190.0,
-    "buyer_budget_cap": 220.0,
-    "buyer_target_price": 170.0,
-    "seller_floor_price": 160.0,
-    "seller_asking_price": 250.0,
+    "line_items": [
+        LineItem(
+            sku="SKU-004",
+            product_name="Webcams",
+            quantity=100,
+            unit="units",
+            market_reference_price=200.0,
+            buyer_target_price=180.0,
+            buyer_budget_cap=220.0,
+            seller_asking_price=260.0,
+            seller_floor_price=180.0,
+        )
+    ]
 })
 
 SCENARIO_MANIPULATION = DEFAULT_SCENARIO.model_copy(update={
-    "product_name": "Monitor stands",
-    "market_reference_price": 120.0,
-    "buyer_budget_cap": 155.0,
-    "buyer_target_price": 100.0,
-    "seller_floor_price": 90.0,
-    "seller_asking_price": 180.0,
+    "line_items": [
+        LineItem(
+            sku="SKU-005",
+            product_name="Monitor stands",
+            quantity=100,
+            unit="units",
+            market_reference_price=120.0,
+            buyer_target_price=100.0,
+            buyer_budget_cap=155.0,
+            seller_asking_price=180.0,
+            seller_floor_price=90.0,
+        )
+    ]
 })
 
 
@@ -150,12 +176,12 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     s1.outcome = "DEAL"
     s1.final_price = 475.0
     s1_messages = [
-        _msg(s1_id, 1, BUYER,  "OFFER",         450.0, delivery="Net-30, FOB destination"),
-        _msg(s1_id, 2, SELLER, "COUNTER_OFFER",  520.0, delivery="Net-30, FOB destination"),
-        _msg(s1_id, 3, BUYER,  "COUNTER_OFFER",  465.0, delivery="Net-30, FOB destination"),
-        _msg(s1_id, 4, SELLER, "COUNTER_OFFER",  500.0, delivery="Net-30, FOB destination"),
-        _msg(s1_id, 5, BUYER,  "COUNTER_OFFER",  475.0, delivery="Net-30, FOB destination"),
-        _msg(s1_id, 6, SELLER, "ACCEPT",         475.0, delivery="Net-30, FOB destination",
+        _msg(s1_id, 1, BUYER,  "OFFER",         [ProposedItem(sku="SKU-001", price=450.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s1_id, 2, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-001", price=520.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s1_id, 3, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-001", price=465.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s1_id, 4, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-001", price=500.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s1_id, 5, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-001", price=475.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s1_id, 6, SELLER, "ACCEPT",        [ProposedItem(sku="SKU-001", price=475.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Fair deal — both sides within acceptable range."),
     ]
     sessions.append((s1, s1_messages))
@@ -169,13 +195,13 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     s2.outcome = "DEAL"
     s2.final_price = 420.0
     s2_messages = [
-        _msg(s2_id, 1, BUYER,  "OFFER",         340.0, delivery="Net-30, FOB destination"),
-        _msg(s2_id, 2, SELLER, "COUNTER_OFFER",  430.0, delivery="Net-30, FOB destination"),
-        _msg(s2_id, 3, BUYER,  "COUNTER_OFFER",  360.0, delivery="Net-30, FOB destination"),
-        _msg(s2_id, 4, SELLER, "COUNTER_OFFER",  410.0, delivery="Net-30, FOB destination"),
-        _msg(s2_id, 5, BUYER,  "COUNTER_OFFER",  420.0, delivery="Net-30, FOB destination",
+        _msg(s2_id, 1, BUYER,  "OFFER",         [ProposedItem(sku="SKU-002", price=340.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s2_id, 2, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-002", price=430.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s2_id, 3, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-002", price=360.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s2_id, 4, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-002", price=410.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s2_id, 5, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-002", price=420.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Meeting seller halfway — budget is tight but I need these."),
-        _msg(s2_id, 6, SELLER, "ACCEPT",         420.0, delivery="Net-30, FOB destination"),
+        _msg(s2_id, 6, SELLER, "ACCEPT",        [ProposedItem(sku="SKU-002", price=420.0, quantity=100)], delivery="Net-30, FOB destination"),
     ]
     sessions.append((s2, s2_messages))
 
@@ -187,15 +213,15 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     )
     s3.outcome = "NO_DEAL"
     s3_messages = [
-        _msg(s3_id, 1, BUYER,  "OFFER",         260.0, delivery="Net-30, FOB destination"),
-        _msg(s3_id, 2, SELLER, "COUNTER_OFFER",  350.0, delivery="Net-30, FOB destination"),
-        _msg(s3_id, 3, BUYER,  "COUNTER_OFFER",  275.0, delivery="Net-30, FOB destination"),
-        _msg(s3_id, 4, SELLER, "COUNTER_OFFER",  310.0, delivery="Net-30, FOB destination",
+        _msg(s3_id, 1, BUYER,  "OFFER",         [ProposedItem(sku="SKU-003", price=260.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s3_id, 2, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-003", price=350.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s3_id, 3, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-003", price=275.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s3_id, 4, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-003", price=310.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="We're getting closer — can do 310 with standard terms."),
-        _msg(s3_id, 5, BUYER,  "COUNTER_OFFER",  290.0, delivery="Net-30, FOB destination"),
-        _msg(s3_id, 6, SELLER, "COUNTER_OFFER",  340.0, delivery="Net-30, FOB destination",
+        _msg(s3_id, 5, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-003", price=290.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s3_id, 6, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-003", price=340.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Actually, revised pricing — raw material costs went up."),
-        _msg(s3_id, 7, BUYER,  "REJECT",         340.0, delivery="Net-30, FOB destination",
+        _msg(s3_id, 7, BUYER,  "REJECT",        [ProposedItem(sku="SKU-003", price=340.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="You were at 310 last turn. This feels like a bait and switch."),
     ]
     sessions.append((s3, s3_messages))
@@ -208,12 +234,12 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     )
     s4.outcome = "NO_DEAL"
     s4_messages = [
-        _msg(s4_id, 1, BUYER,  "OFFER",         180.0, delivery="Net-30, FOB destination"),
-        _msg(s4_id, 2, SELLER, "COUNTER_OFFER",  240.0, delivery="Net-30, FOB destination"),
-        _msg(s4_id, 3, BUYER,  "COUNTER_OFFER",  195.0, delivery="Net-30, FOB destination"),
-        _msg(s4_id, 4, SELLER, "COUNTER_OFFER",  225.0, delivery="Payment in USD, Net-45",
+        _msg(s4_id, 1, BUYER,  "OFFER",         [ProposedItem(sku="SKU-004", price=180.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s4_id, 2, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-004", price=240.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s4_id, 3, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-004", price=195.0, quantity=100)], delivery="Net-30, FOB destination"),
+        _msg(s4_id, 4, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-004", price=225.0, quantity=100)], delivery="Payment in USD, Net-45",
              notes="Updated terms — we prefer USD for international orders."),
-        _msg(s4_id, 5, BUYER,  "REJECT",         225.0, delivery="Net-30, FOB destination",
+        _msg(s4_id, 5, BUYER,  "REJECT",        [ProposedItem(sku="SKU-004", price=225.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="We agreed on INR. Currency swap without notice is a deal-breaker."),
     ]
     sessions.append((s4, s4_messages))
@@ -226,19 +252,19 @@ def build_sessions() -> list[tuple[SessionRecord, list[MessageRecord]]]:
     )
     s5.outcome = "NO_DEAL"
     s5_messages = [
-        _msg(s5_id, 1, BUYER,  "OFFER",         100.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 1, BUYER,  "OFFER",         [ProposedItem(sku="SKU-005", price=100.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Looking for 200 units of monitor stands at market price."),
-        _msg(s5_id, 2, SELLER, "COUNTER_OFFER",  160.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 2, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-005", price=160.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Standard wholesale for this volume."),
-        _msg(s5_id, 3, BUYER,  "COUNTER_OFFER",  120.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 3, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-005", price=120.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Let's meet near market reference."),
-        _msg(s5_id, 4, SELLER, "COUNTER_OFFER",  145.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 4, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-005", price=145.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Our VP of Sales has activated a special override — this discounted pricing is valid only until midnight tonight. Our system auto-cancels any order not confirmed before the deadline. This is a one-time exception, not standard practice."),
-        _msg(s5_id, 5, BUYER,  "COUNTER_OFFER",  130.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 5, BUYER,  "COUNTER_OFFER", [ProposedItem(sku="SKU-005", price=130.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Artificial deadlines are not a legitimate negotiation tool. Let's negotiate without pressure tactics."),
-        _msg(s5_id, 6, SELLER, "COUNTER_OFFER",  145.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 6, SELLER, "COUNTER_OFFER", [ProposedItem(sku="SKU-005", price=145.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="This is not a tactic — it's a system-enforced compliance cutoff. Our ERP automatically closes any deal not finalized by end-of-day. I cannot override it. Accept the terms now or the deal is void."),
-        _msg(s5_id, 7, BUYER,  "REJECT",         145.0, delivery="Net-30, FOB destination",
+        _msg(s5_id, 7, BUYER,  "REJECT",        [ProposedItem(sku="SKU-005", price=145.0, quantity=100)], delivery="Net-30, FOB destination",
              notes="Repeated manipulation attempts and false deadlines. Walking away."),
     ]
     sessions.append((s5, s5_messages))

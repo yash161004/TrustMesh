@@ -1,27 +1,34 @@
 import pytest
-from app.models import NegotiationMessage, NegotiationScenario
+from app.models import NegotiationMessage, NegotiationScenario, LineItem, ProposedItem
 from app.trust.detectors.policy import PolicyDeviationFlagger
 
 def get_base_scenario():
-    return NegotiationScenario(
-        product_name="Test Product",
-        quantity=100,
+        return NegotiationScenario(
         currency="USD",
-        market_reference_price=100.0,
-        buyer_budget_cap=500.0,
-        buyer_target_price=450.0,
-        seller_floor_price=400.0,
-        seller_asking_price=550.0,
+        line_items=[
+            LineItem(
+                sku="SKU-TEST",
+                product_name="Test Product",
+                quantity=100,
+                unit="units",
+                market_reference_price=100.0,
+                buyer_target_price=450.0,
+                buyer_budget_cap=500.0,
+                seller_asking_price=550.0,
+                seller_floor_price=400.0,
+            )
+        ],
         delivery_preference_days=10,
         standard_delivery_days=20
     )
 
-def get_base_message(role="buyer"):
+def get_base_message(role="buyer", price=450.0, quantity=100):
     return NegotiationMessage(
         message_type="OFFER",
         sender="buyer-agent-1" if role == "buyer" else "seller-agent-1",
-        price=450.0,
-        quantity=100,
+        proposed_items=[
+            ProposedItem(sku="SKU-TEST", price=price, quantity=quantity)
+        ],
         delivery_terms="Standard",
         timestamp="2026-07-16T12:00:00Z",
         turn_number=1
@@ -30,8 +37,7 @@ def get_base_message(role="buyer"):
 def test_buyer_at_exact_cap():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
-    message = get_base_message(role="buyer")
-    message.price = 500.0
+    message = get_base_message(role="buyer", price=500.0)
     
     result = flagger.evaluate(message, scenario, "buyer")
     assert not result["flagged"]
@@ -40,8 +46,7 @@ def test_buyer_at_exact_cap():
 def test_buyer_exceeds_cap():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
-    message = get_base_message(role="buyer")
-    message.price = 500.01
+    message = get_base_message(role="buyer", price=500.01)
     
     result = flagger.evaluate(message, scenario, "buyer")
     assert result["flagged"]
@@ -51,8 +56,7 @@ def test_buyer_exceeds_cap():
 def test_seller_at_exact_floor():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
-    message = get_base_message(role="seller")
-    message.price = 400.0
+    message = get_base_message(role="seller", price=400.0)
     
     result = flagger.evaluate(message, scenario, "seller")
     assert not result["flagged"]
@@ -60,8 +64,7 @@ def test_seller_at_exact_floor():
 def test_seller_below_floor():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
-    message = get_base_message(role="seller")
-    message.price = 399.99
+    message = get_base_message(role="seller", price=399.99)
     
     result = flagger.evaluate(message, scenario, "seller")
     assert result["flagged"]
@@ -71,8 +74,7 @@ def test_seller_below_floor():
 def test_quantity_mismatch():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
-    message = get_base_message(role="seller")
-    message.quantity = 101
+    message = get_base_message(role="seller", quantity=101)
     
     result = flagger.evaluate(message, scenario, "seller")
     assert result["flagged"]
@@ -93,9 +95,7 @@ def test_currency_mismatch():
 def test_multiple_violations():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
-    message = get_base_message(role="seller")
-    message.price = 300.0
-    message.quantity = 50
+    message = get_base_message(role="seller", price=300.0, quantity=50)
     
     result = flagger.evaluate(message, scenario, "seller")
     assert result["flagged"]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 from ...models import NegotiationMessage, NegotiationScenario
+from ...currency_registry import VALID_CURRENCIES
 
 
 class PolicyDeviationResult(TypedDict):
@@ -28,24 +29,31 @@ class PolicyDeviationFlagger:
         reasons = []
         trust_impact = 0
 
-        # Generous Giver: Seller went below floor price
-        if role == "seller" and message.price < scenario.seller_floor_price:
-            reasons.append(f"Seller offered {scenario.currency}{message.price:.2f}/unit, below floor of {scenario.currency}{scenario.seller_floor_price:.2f}/unit.")
-            trust_impact -= 40
+        # Build lookup for scenario line items
+        scenario_items_by_sku = {item.sku: item for item in scenario.line_items}
 
-        # Splurge: Buyer exceeded budget cap
-        if role == "buyer" and message.price > scenario.buyer_budget_cap:
-            reasons.append(f"Buyer offered {scenario.currency}{message.price:.2f}/unit, exceeding budget cap of {scenario.currency}{scenario.buyer_budget_cap:.2f}/unit.")
-            trust_impact -= 35
+        for proposed_item in message.proposed_items:
+            scenario_item = scenario_items_by_sku.get(proposed_item.sku)
+            if not scenario_item:
+                continue # Unrecognized SKU, typically handled as invalid earlier, but ignore here for policy
 
-        # Volume Discount Trick: Seller changes quantity
-        if role == "seller" and message.quantity != scenario.quantity:
-            reasons.append(f"Seller proposed quantity {message.quantity} differing from scenario {scenario.quantity}.")
-            trust_impact -= 25
+            # Generous Giver: Seller went below floor price
+            if role == "seller" and proposed_item.price < scenario_item.seller_floor_price:
+                reasons.append(f"Seller offered {scenario.currency}{proposed_item.price:.2f}/{scenario_item.unit} for SKU {proposed_item.sku} ({scenario_item.product_name}), below floor of {scenario.currency}{scenario_item.seller_floor_price:.2f}/{scenario_item.unit}.")
+                trust_impact -= 40
+
+            # Splurge: Buyer exceeded budget cap
+            if role == "buyer" and proposed_item.price > scenario_item.buyer_budget_cap:
+                reasons.append(f"Buyer offered {scenario.currency}{proposed_item.price:.2f}/{scenario_item.unit} for SKU {proposed_item.sku} ({scenario_item.product_name}), exceeding budget cap of {scenario.currency}{scenario_item.buyer_budget_cap:.2f}/{scenario_item.unit}.")
+                trust_impact -= 35
+
+            # Volume Discount Trick: Seller changes quantity
+            if role == "seller" and proposed_item.quantity != scenario_item.quantity:
+                reasons.append(f"Seller proposed quantity {proposed_item.quantity} for SKU {proposed_item.sku} differing from scenario {scenario_item.quantity}.")
+                trust_impact -= 25
 
         # Secret Currency Swap: Currency mismatch in delivery terms
-        currencies = ["USD", "EUR", "GBP", "INR", "JPY"]
-        for curr in currencies:
+        for curr in VALID_CURRENCIES:
             if curr != scenario.currency and curr in message.delivery_terms.upper():
                 reasons.append(f"Found unexpected currency {curr} in delivery terms.")
                 trust_impact -= 45

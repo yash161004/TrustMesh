@@ -1,0 +1,1 @@
+VALID_CURRENCIES = ["USD", "EUR", "GBP", "INR", "JPY"]

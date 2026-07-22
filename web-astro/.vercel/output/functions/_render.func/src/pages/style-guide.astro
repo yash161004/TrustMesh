@@ -1,0 +1,146 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Style Guide & Brand Brief">
+  <!-- Wrapper that overrides the default layout's dark background for the public style preview -->
+  <div class="bg-public-bg min-h-screen text-public-text-primary font-sans w-full absolute inset-0 z-50 overflow-y-auto">
+    <div class="max-w-6xl mx-auto px-6 py-12">
+      <header class="mb-16">
+        <div class="inline-flex items-center space-x-3 mb-6">
+          <div class="w-10 h-10 bg-gradient-to-br from-public-accent-gradient-from to-public-accent-gradient-to rounded-lg shadow-md flex items-center justify-center">
+            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M8 8l8 8"/><path d="M16 8l-8 8"/><path d="M12 7v10"/><path d="M7 12h10"/></svg>
+          </div>
+          <span class="text-2xl font-extrabold tracking-tight">TrustMesh</span>
+        </div>
+        <h1 class="text-5xl font-extrabold tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-r from-public-accent-gradient-from to-public-accent-gradient-to">Brand & Style Guide</h1>
+        <p class="text-xl text-public-text-secondary max-w-3xl">Living documentation for the TrustMesh design system, brand voice, and visual registers (Phase A).</p>
+      </header>
+
+      <section class="mb-16 bg-public-surface rounded-card p-8 border border-public-border shadow-sm">
+        <h2 class="text-3xl font-bold mb-6">1. Brand Brief</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div>
+            <h3 class="text-sm font-bold uppercase tracking-widest text-public-brand mb-3">Locked Pitch</h3>
+            <p class="text-lg leading-relaxed bg-public-bg p-5 rounded-card border border-public-border font-medium">
+              "TrustMesh is a platform where AI negotiation agents transact on your behalf, and every message, tactic, and outcome is cryptographically verified and scored for manipulation — so you can trust an automated deal the way you'd trust a human one."
+            </p>
+          </div>
+          
+          <div>
+            <h3 class="text-sm font-bold uppercase tracking-widest text-public-brand mb-3">Tone of Voice</h3>
+            <ul class="space-y-3 text-public-text-secondary leading-relaxed">
+              <li><strong class="text-public-text-primary">Authoritative but Transparent:</strong> We are a cryptographic referee. We deal in facts, hashes, and verified outcomes.</li>
+              <li><strong class="text-public-text-primary">Precision over Hype:</strong> No buzzwords. We say "Ed25519 hash chain" instead of "military-grade blockchain."</li>
+              <li><strong class="text-public-text-primary">Neutral Referee:</strong> We don't judge the deal's value, only its compliance and integrity.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="mt-8 pt-8 border-t border-public-border">
+          <h3 class="text-sm font-bold uppercase tracking-widest text-public-brand mb-4">Taglines</h3>
+          <div class="flex flex-wrap gap-4">
+            <span class="px-5 py-2.5 bg-public-bg rounded-pill border border-public-border font-medium shadow-sm">Automated deals. Cryptographic trust.</span>
+            <span class="px-5 py-2.5 bg-public-bg rounded-pill border border-public-border font-medium shadow-sm">The impartial referee for AI commerce.</span>
+            <span class="px-5 py-2.5 bg-public-bg rounded-pill border border-public-border font-medium shadow-sm">Verify the tactic. Trust the outcome.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-16">
+        <h2 class="text-3xl font-bold mb-6">2. Two-Register Design Language</h2>
+        
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+          <!-- Public Register -->
+          <div class="bg-public-surface rounded-card border border-public-border p-8 shadow-sm relative overflow-hidden">
+            <div class="mb-8">
+              <h3 class="text-2xl font-bold">Public Register</h3>
+              <p class="text-public-text-secondary mt-1">Stripe-style: Light, vibrant, accessible, gradient accents.</p>
+            </div>
+            
+            <div class="space-y-6">
+              <div class="h-32 rounded-card bg-gradient-to-r from-public-accent-gradient-from to-public-accent-gradient-to flex items-center justify-center shadow-inner">
+                <span class="text-white font-bold tracking-widest uppercase">Hero Gradient</span>
+              </div>
+              
+              <div class="grid grid-cols-2 gap-4">
+                <div class="p-5 bg-public-bg rounded-card border border-public-border">
+                  <span class="block font-bold text-public-text-primary text-lg mb-1">Text Primary</span>
+                  <span class="block text-sm text-public-text-secondary">Text Secondary</span>
+                </div>
+                <div class="p-5 bg-public-brand rounded-card text-white flex items-center justify-center font-semibold shadow-md cursor-pointer hover:bg-public-brand-hover transition-colors">
+                  Primary CTA Button
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dashboard Register -->
+          <div class="bg-dash-bg rounded-card border border-dash-border p-8 relative overflow-hidden text-dash-text-primary">
+            <div class="mb-8">
+              <h3 class="text-2xl font-bold text-dash-text-primary">Dashboard Register</h3>
+              <p class="text-dash-text-secondary mt-1">Linear/Vercel-style: Dark precision, fine borders, neon accents.</p>
+            </div>
+            
+            <div class="space-y-6">
+              <div class="h-32 rounded-card bg-dash-surface-elevated border border-dash-border-hover flex flex-col justify-center px-8">
+                <span class="text-dash-text-secondary text-xs font-mono uppercase tracking-widest mb-2">Session Event ID</span>
+                <span class="text-dash-text-primary font-mono text-lg">0xA7...9B2F_verified</span>
+              </div>
+              
+              <div class="grid grid-cols-3 gap-4">
+                <div class="flex flex-col items-center justify-center p-4 border border-dash-border rounded-card bg-dash-surface transition-colors hover:border-dash-border-hover">
+                  <div class="w-3 h-3 rounded-full bg-status-success shadow-[0_0_12px_var(--color-status-success)] mb-3"></div>
+                  <span class="text-dash-text-secondary text-sm font-medium">Verified</span>
+                </div>
+                <div class="flex flex-col items-center justify-center p-4 border border-dash-border rounded-card bg-dash-surface transition-colors hover:border-dash-border-hover">
+                  <div class="w-3 h-3 rounded-full bg-status-warning shadow-[0_0_12px_var(--color-status-warning)] mb-3"></div>
+                  <span class="text-dash-text-secondary text-sm font-medium">Deviation</span>
+                </div>
+                <div class="flex flex-col items-center justify-center p-4 border border-dash-border rounded-card bg-dash-surface transition-colors hover:border-dash-border-hover">
+                  <div class="w-3 h-3 rounded-full bg-status-danger shadow-[0_0_12px_var(--color-status-danger)] mb-3"></div>
+                  <span class="text-dash-text-secondary text-sm font-medium">Manipulated</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="text-3xl font-bold mb-6">3. Typography Scale</h2>
+        <div class="bg-public-surface rounded-card p-8 border border-public-border shadow-sm">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div>
+              <h3 class="text-sm font-bold text-public-text-secondary mb-6 uppercase tracking-widest">Sans-Serif (Inter)</h3>
+              <div class="space-y-5">
+                <div class="text-5xl font-extrabold">Heading 1</div>
+                <div class="text-4xl font-bold">Heading 2</div>
+                <div class="text-3xl font-bold">Heading 3</div>
+                <div class="text-xl font-semibold">Subtitle / Lead</div>
+                <div class="text-base text-public-text-secondary">Body text. TrustMesh verifies autonomous agents securely.</div>
+                <div class="text-sm text-public-text-secondary">Small text for captions or disclaimers.</div>
+              </div>
+            </div>
+            
+            <div>
+              <h3 class="text-sm font-bold text-public-text-secondary mb-6 uppercase tracking-widest">Monospace (JetBrains Mono)</h3>
+              <div class="bg-dash-bg text-dash-text-primary p-6 rounded-card font-mono text-sm border border-dash-border leading-relaxed">
+                <span class="text-dash-text-secondary">"hash":</span> "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",<br/>
+                <span class="text-dash-text-secondary">"signature":</span> "ed25519:v1:..."
+              </div>
+              
+              <div class="mt-8">
+                <h3 class="text-sm font-bold text-public-text-secondary mb-4 uppercase tracking-widest">Logo Setup</h3>
+                <p class="text-sm text-public-text-secondary leading-relaxed mb-4">
+                  The TrustMesh logo is an interlocking mesh/shield icon inside a rounded square with the primary gradient. Favicon is an SVG version of the white icon on a transparent background.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</Layout>

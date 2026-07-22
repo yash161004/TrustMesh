@@ -1,0 +1,21 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import SessionList from '../../components/SessionList';
+
+const clerkBypass = process.env.CLERK_BYPASS === 'true';
+---
+
+<Layout title="Dashboard">
+  <main class="mx-auto max-w-4xl px-6 py-page">
+    <header class="mb-6 flex items-center justify-between">
+      <h1 class="text-xl font-semibold tracking-tight text-text-primary">Sessions</h1>
+      <a
+        href="/dashboard/new"
+        class="rounded-card bg-gold px-4 py-2 text-sm font-medium text-surface-900 transition-colors duration-150 hover:bg-gold-hover"
+      >
+        New Session
+      </a>
+    </header>
+    <SessionList client:load clerkBypass={clerkBypass} />
+  </main>
+</Layout>

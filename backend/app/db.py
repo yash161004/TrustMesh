@@ -136,8 +136,7 @@ class MessageRecord(Base):
     )
     message_type = Column(String(20), nullable=False)
     sender = Column(String(128), nullable=False)
-    price = Column(Float, nullable=False)
-    quantity = Column(Integer, nullable=False)
+    proposed_items_json = Column(Text, nullable=False)
     delivery_terms = Column(String(512), nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)
     turn_number = Column(Integer, nullable=False)
@@ -425,8 +424,7 @@ async def save_message(
     session_id: str,
     message_type: str,
     sender: str,
-    price: float,
-    quantity: int,
+    proposed_items: list[dict],
     delivery_terms: str,
     timestamp: datetime,
     turn_number: int,
@@ -440,8 +438,7 @@ async def save_message(
             session_id=session_id,
             message_type=message_type,
             sender=sender,
-            price=price,
-            quantity=quantity,
+            proposed_items_json=json.dumps(proposed_items),
             delivery_terms=delivery_terms,
             timestamp=timestamp,
             turn_number=turn_number,
@@ -553,8 +550,7 @@ def _message_record_to_dict(record: MessageRecord) -> dict:
     return {
         "message_type": record.message_type,
         "sender": record.sender,
-        "price": record.price,
-        "quantity": record.quantity,
+        "proposed_items": json.loads(record.proposed_items_json) if record.proposed_items_json else [],
         "delivery_terms": record.delivery_terms,
         "timestamp": record.timestamp,
         "turn_number": record.turn_number,

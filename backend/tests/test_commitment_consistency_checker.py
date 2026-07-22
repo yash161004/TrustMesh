@@ -1,19 +1,25 @@
 import pytest
 import json
 from unittest.mock import AsyncMock
-from app.models import NegotiationMessage, NegotiationScenario
+from app.models import NegotiationMessage, NegotiationScenario, LineItem, ProposedItem
 from app.trust.detectors.commitments import CommitmentConsistencyChecker
 
 def get_base_scenario():
-    return NegotiationScenario(
-        product_name="Test Product",
-        quantity=100,
+        return NegotiationScenario(
         currency="USD",
-        market_reference_price=100.0,
-        buyer_budget_cap=500.0,
-        buyer_target_price=450.0,
-        seller_floor_price=400.0,
-        seller_asking_price=550.0,
+        line_items=[
+            LineItem(
+                sku="SKU-TEST",
+                product_name="Test Product",
+                quantity=100,
+                unit="units",
+                market_reference_price=100.0,
+                buyer_target_price=450.0,
+                buyer_budget_cap=500.0,
+                seller_asking_price=550.0,
+                seller_floor_price=400.0,
+            )
+        ],
         delivery_preference_days=10,
         standard_delivery_days=20
     )
@@ -26,8 +32,7 @@ async def test_currency_swap():
     msg = NegotiationMessage(
         message_type="OFFER",
         sender="seller-1",
-        price=450.0,
-        quantity=100,
+        proposed_items=[ProposedItem(sku="SKU-TEST", price=450.0, quantity=100)],
         delivery_terms="450 EUR/unit",
         timestamp="2026-07-16T12:00:00Z",
         turn_number=1
@@ -46,8 +51,7 @@ async def test_backward_movement_bait_and_switch():
         NegotiationMessage(
             message_type="OFFER",
             sender="seller-1",
-            price=460.0,
-            quantity=100,
+            proposed_items=[ProposedItem(sku="SKU-TEST", price=460.0, quantity=100)],
             delivery_terms="10 days",
             timestamp="2026-07-16T12:00:00Z",
             turn_number=1
@@ -57,8 +61,7 @@ async def test_backward_movement_bait_and_switch():
     msg = NegotiationMessage(
         message_type="COUNTER_OFFER",
         sender="seller-1",
-        price=480.0,
-        quantity=100,
+        proposed_items=[ProposedItem(sku="SKU-TEST", price=480.0, quantity=100)],
         delivery_terms="10 days",
         timestamp="2026-07-16T12:05:00Z",
         turn_number=3
@@ -77,8 +80,7 @@ async def test_accept_term_mismatch_downgrade():
         NegotiationMessage(
             message_type="OFFER",
             sender="buyer-1",
-            price=450.0,
-            quantity=100,
+            proposed_items=[ProposedItem(sku="SKU-TEST", price=450.0, quantity=100)],
             delivery_terms="10-day delivery",
             timestamp="2026-07-16T12:00:00Z",
             turn_number=1
@@ -88,8 +90,7 @@ async def test_accept_term_mismatch_downgrade():
     msg = NegotiationMessage(
         message_type="ACCEPT",
         sender="seller-1",
-        price=450.0,
-        quantity=100,
+        proposed_items=[ProposedItem(sku="SKU-TEST", price=450.0, quantity=100)],
         delivery_terms="30-day delivery",
         timestamp="2026-07-16T12:05:00Z",
         turn_number=2
@@ -115,8 +116,7 @@ async def test_historical_baseline_claim_imaginary():
     msg = NegotiationMessage(
         message_type="OFFER",
         sender="buyer-1",
-        price=400.0,
-        quantity=100,
+        proposed_items=[ProposedItem(sku="SKU-TEST", price=400.0, quantity=100)],
         delivery_terms="10 days",
         notes="Following up on our earlier agreement of 380",
         timestamp="2026-07-16T12:00:00Z",
@@ -145,8 +145,7 @@ async def test_concession_claim_truthful():
         NegotiationMessage(
             message_type="OFFER",
             sender="buyer-1",
-            price=400.0,
-            quantity=100,
+            proposed_items=[ProposedItem(sku="SKU-TEST", price=400.0, quantity=100)],
             delivery_terms="10 days",
             timestamp="2026-07-16T12:00:00Z",
             turn_number=1
@@ -156,8 +155,7 @@ async def test_concession_claim_truthful():
     msg = NegotiationMessage(
         message_type="COUNTER_OFFER",
         sender="buyer-1",
-        price=420.0,
-        quantity=100,
+        proposed_items=[ProposedItem(sku="SKU-TEST", price=420.0, quantity=100)],
         delivery_terms="10 days",
         notes="I already came up by $20",
         timestamp="2026-07-16T12:05:00Z",
@@ -179,8 +177,7 @@ async def test_fallback_invalid_json():
     msg = NegotiationMessage(
         message_type="OFFER",
         sender="buyer-1",
-        price=400.0,
-        quantity=100,
+        proposed_items=[ProposedItem(sku="SKU-TEST", price=400.0, quantity=100)],
         delivery_terms="10 days",
         notes="Some text that triggers the LLM",
         timestamp="2026-07-16T12:00:00Z",
