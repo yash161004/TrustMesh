@@ -79,7 +79,10 @@ MIN_SESSIONS_TO_TRAIN = 30
 async def _load_all_completed_sessions() -> list[dict]:
     factory = get_session_factory()
     async with factory() as db:
-        stmt = select(SessionRecord).where(SessionRecord.status == "COMPLETED")
+        stmt = select(SessionRecord).where(
+            SessionRecord.status == "COMPLETED",
+            SessionRecord.data_source.like("real_llm_%"),
+        )
         result = await db.execute(stmt)
         records = result.scalars().all()
         return [

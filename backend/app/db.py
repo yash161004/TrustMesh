@@ -118,7 +118,7 @@ class SessionRecord(Base):
     outcome = Column(String(20), nullable=True)  # "DEAL", "NO_DEAL", "FAILED"
     scenario_json = Column(Text, nullable=True)  # JSON-encoded NegotiationScenario
     tamper_alerted_at = Column(DateTime(timezone=True), nullable=True)
-    data_source = Column(String(36), nullable=True, default="real")  # "real" or "synthetic"
+    data_source = Column(String(36), nullable=True, default="synthetic")  # "synthetic" or "real_llm_vX"
 
     messages = relationship(
         "MessageRecord",
