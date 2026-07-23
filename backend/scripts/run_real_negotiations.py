@@ -209,8 +209,8 @@ async def preflight_quota_check(primary_provider: str = "groq", max_wait_sec: in
     """Verify all pipeline providers (negotiation turn provider + trust judge provider) are healthy."""
     from app.llm_client import get_llm_client
     
-    # Check both negotiation turn provider and trust engine judge provider (gemini)
-    providers_to_check = list(dict.fromkeys([primary_provider, "gemini"]))
+    # Check negotiation turn provider, trust engine judge provider (gemini), and tiebreak fallback (openrouter)
+    providers_to_check = list(dict.fromkeys([primary_provider, "gemini", "openrouter"]))
     logger.info(f"Performing pre-flight rate-limit health check for providers: {providers_to_check}...")
     
     for provider in providers_to_check:
