@@ -75,6 +75,12 @@ desktop.ini
 nul
 .backups/
 
+# Ad-hoc eval/experiment console dumps (curated results live in docs/EVAL_RESULTS.md;
+# raw evidence archives live in docs/qa-history/). Do not commit new console captures.
+/eval_*_results*.txt
+/scratch_*.txt
+/backend/*_results.txt
+
 # QA history files (archived test output, lighthouse reports, debug logs)
 docs/qa-history/
 

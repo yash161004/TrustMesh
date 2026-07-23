@@ -1,9 +1,11 @@
 import re
 
+# Raw experiment dump was archived to docs/qa-history/ in the Phase 0 cleanup.
+_RESULTS = '../docs/qa-history/experiment_results.txt'
 try:
-    content = open('experiment_results.txt', encoding='utf-16').read()
+    content = open(_RESULTS, encoding='utf-16').read()
 except UnicodeError:
-    content = open('experiment_results.txt', encoding='utf-8').read()
+    content = open(_RESULTS, encoding='utf-8').read()
 sections = re.split(r'=== (MAJORITY VOTE|SINGLE MODEL) ===', content)
 
 def parse_section(text):
