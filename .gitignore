@@ -78,5 +78,7 @@ nul
 # QA history files (archived test output, lighthouse reports, debug logs)
 docs/qa-history/
 
-# ─────────────────────── Cryptographic keys ─────────────────
+# ─────────────────────── Cryptographic keys & generated cards ─────────────────
 backend/.keys/
+backend/data/agent_cards/
+*.lock
