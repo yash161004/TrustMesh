@@ -104,6 +104,8 @@ export interface TrustReport {
   violations: Violation[];
   events?: SessionEvent[];
   summary: string;
+  overall_confidence?: number | null;
+  low_confidence_review_count?: number;
 }
 
 export interface CreateSessionPayload {

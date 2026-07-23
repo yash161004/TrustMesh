@@ -354,6 +354,16 @@ export default function SessionView({ sessionId: propSessionId, clerkBypass }: P
             <div className="hidden h-10 w-px bg-border sm:block"></div>
             <TrustGauge score={trust?.seller_score?.overall_score ?? 0} label="Seller Trust" />
           </div>
+          {trust?.overall_confidence != null && (
+            <p className="mt-4 text-center text-[11px] text-text-muted">
+              {(trust.overall_confidence * 100).toFixed(0)}% average detector confidence across this session
+              {!!trust.low_confidence_review_count && (
+                <span className="text-gold">
+                  {" "}· {trust.low_confidence_review_count} check{trust.low_confidence_review_count === 1 ? '' : 's'} flagged for manual review despite clearing
+                </span>
+              )}
+            </p>
+          )}
           {trust?.violations && trust.violations.length > 0 && (
             <div className="mt-6 pt-5 border-t border-border">
               <h3 className="mb-3 text-xs font-semibold text-text-primary tracking-wide">Detected Violations</h3>
