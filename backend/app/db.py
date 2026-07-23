@@ -119,7 +119,7 @@ class SessionRecord(Base):
     scenario_json = Column(Text, nullable=True)  # JSON-encoded NegotiationScenario
     tamper_alerted_at = Column(DateTime(timezone=True), nullable=True)
     data_source = Column(String(36), nullable=True, default="synthetic")  # "synthetic" or "real_llm_vX"
-    model_provider = Column(String(36), nullable=True, default="gemini")  # "groq", "gemini", "nvidia", "openrouter"
+    model_provider = Column(String(36), nullable=True)  # "groq", "nvidia", "gemini", "openrouter", etc.
 
     messages = relationship(
         "MessageRecord",
@@ -233,7 +233,7 @@ async def init_db() -> None:
             ("seller_identity_id", "VARCHAR(36)", "TEXT"),
             ("tamper_alerted_at", "TIMESTAMP WITH TIME ZONE", "DATETIME"),
             ("data_source", "VARCHAR(36) DEFAULT 'real'", "TEXT DEFAULT 'real'"),
-            ("model_provider", "VARCHAR(36) DEFAULT 'gemini'", "TEXT DEFAULT 'gemini'"),
+            ("model_provider", "VARCHAR(36)", "TEXT"),
         ]:
             col_type = col_type_lite if _async_engine.dialect.name == "sqlite" else col_type_pg
             if _async_engine.dialect.name == "sqlite":
@@ -390,7 +390,7 @@ async def save_session(
     user_id: Optional[str] = None,
     org_id: Optional[str] = None,
     data_source: Optional[str] = "real",
-    model_provider: Optional[str] = "gemini",
+    model_provider: Optional[str] = None,
 ) -> None:
     """Insert or update a session record."""
     factory = get_session_factory()
@@ -563,7 +563,7 @@ def _session_record_to_dict(record: SessionRecord) -> dict:
         "outcome": record.outcome,
         "scenario_json": record.scenario_json,
         "data_source": getattr(record, "data_source", "real"),
-        "model_provider": getattr(record, "model_provider", "gemini"),
+        "model_provider": getattr(record, "model_provider", None),
         "messages": [
             _message_record_to_dict(m) for m in (record.messages or [])
         ],

@@ -27,6 +27,7 @@ async def run():
             {
                 "session_id": r.id,
                 "data_source": r.data_source,
+                "model_provider": getattr(r, "model_provider", None),
                 "status": r.status,
                 "outcome": r.outcome,
                 "final_price": r.final_price,
