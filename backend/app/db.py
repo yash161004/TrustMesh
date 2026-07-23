@@ -85,6 +85,13 @@ class AgentIdentityRecord(Base):
     name = Column(String(128), nullable=False)
     reputation_score = Column(Float, nullable=False, default=100.0)
     session_count = Column(Integer, nullable=False, default=0)
+    # Per-tenant identity binding. org_id/owner_user_id scope an identity to the
+    # Clerk org/user that owns it; public_key is the DB-of-record for this
+    # identity's Ed25519 signing key (the verification authority — see
+    # docs/agent_card_design.md §"Current State & Identity Hardening").
+    org_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
+    owner_user_id = Column(String(36), nullable=True)
+    public_key = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
@@ -269,6 +276,25 @@ async def init_db() -> None:
             if res.one().cnt == 0:
                 await conn.execute(text(f"ALTER TABLE negotiation_messages ADD COLUMN {msg_col} {col_type}"))
                 logger.info(f"Added {msg_col} column to negotiation_messages.")
+
+        # Check agent_identities missing per-tenant identity columns
+        for id_col, col_type_pg, col_type_lite in [
+            ("org_id", "VARCHAR(36)", "TEXT"),
+            ("owner_user_id", "VARCHAR(36)", "TEXT"),
+            ("public_key", "TEXT", "TEXT"),
+        ]:
+            col_type = col_type_lite if _async_engine.dialect.name == "sqlite" else col_type_pg
+            if _async_engine.dialect.name == "sqlite":
+                res = await conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM pragma_table_info('agent_identities') WHERE name='{id_col}'")
+                )
+            else:
+                res = await conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM information_schema.columns WHERE table_name='agent_identities' AND column_name='{id_col}'")
+                )
+            if res.one().cnt == 0:
+                await conn.execute(text(f"ALTER TABLE agent_identities ADD COLUMN {id_col} {col_type}"))
+                logger.info(f"Added {id_col} column to agent_identities.")
 
     _async_session_factory = async_sessionmaker(
         _async_engine, class_=AsyncSession, expire_on_commit=False
@@ -723,6 +749,9 @@ async def get_agent_identity(identity_id: str) -> Optional[dict]:
             "id": record.id,
             "role": record.role,
             "name": record.name,
+            "org_id": record.org_id,
+            "owner_user_id": record.owner_user_id,
+            "public_key": record.public_key,
             "reputation_score": record.reputation_score,
             "session_count": record.session_count,
             "created_at": record.created_at,
@@ -740,6 +769,9 @@ async def get_all_agent_identities() -> list[dict]:
                 "id": record.id,
                 "role": record.role,
                 "name": record.name,
+                "org_id": record.org_id,
+                "owner_user_id": record.owner_user_id,
+                "public_key": record.public_key,
                 "reputation_score": record.reputation_score,
                 "session_count": record.session_count,
                 "created_at": record.created_at,
@@ -747,6 +779,89 @@ async def get_all_agent_identities() -> list[dict]:
             }
             for record in records
         ]
+
+async def get_or_create_agent_identity(
+    org_id: Optional[str],
+    role: str,
+    owner_user_id: Optional[str] = None,
+    name: Optional[str] = None,
+) -> dict:
+    """Resolve the org-scoped AgentIdentity for (org_id, role), creating it on first use.
+
+    Each (org_id, role) pair maps to exactly one persistent identity with its own
+    Ed25519 keypair, so agents in different orgs never share a signing key. The
+    identity's public_key is recorded in the DB as the verification authority for
+    that key. Sessions with no org (mock/dev) fall back to a single shared per-role
+    identity — there is no tenant to isolate. See docs/agent_card_design.md
+    §"Current State & Identity Hardening".
+    """
+    from uuid import uuid4
+    import base64
+    from .crypto.signing import load_or_generate_keypair_for_agent
+
+    role_norm = (role or "").strip().lower()
+    factory = get_session_factory()
+    async with factory() as db:
+        # Match only rows we created (lowercase role); uppercase org-less seed
+        # rows are intentionally not reused as signing identities.
+        stmt = select(AgentIdentityRecord).where(AgentIdentityRecord.role == role_norm)
+        if org_id is None:
+            stmt = stmt.where(AgentIdentityRecord.org_id.is_(None))
+        else:
+            stmt = stmt.where(AgentIdentityRecord.org_id == org_id)
+        record = (await db.execute(stmt)).scalars().first()
+
+        if record is not None:
+            # Backfill public_key for a row created before this column existed.
+            if not record.public_key:
+                _, pub_bytes = load_or_generate_keypair_for_agent(record.id)
+                record.public_key = base64.b64encode(pub_bytes).decode("ascii")
+                record.updated_at = datetime.now(timezone.utc)
+                await db.commit()
+            return {
+                "id": record.id,
+                "role": record.role,
+                "name": record.name,
+                "org_id": record.org_id,
+                "owner_user_id": record.owner_user_id,
+                "public_key": record.public_key,
+                "reputation_score": record.reputation_score,
+                "session_count": record.session_count,
+            }
+
+        identity_id = str(uuid4())
+        _, pub_bytes = load_or_generate_keypair_for_agent(identity_id)
+        public_key_b64 = base64.b64encode(pub_bytes).decode("ascii")
+        now = datetime.now(timezone.utc)
+        record = AgentIdentityRecord(
+            id=identity_id,
+            role=role_norm,
+            name=name or f"{role_norm.title()} Agent ({org_id or 'public'})",
+            reputation_score=100.0,
+            session_count=0,
+            org_id=org_id,
+            owner_user_id=owner_user_id,
+            public_key=public_key_b64,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(record)
+        await db.commit()
+        logger.info(
+            "Provisioned agent identity %s for (org_id=%s, role=%s)",
+            identity_id, org_id, role_norm,
+        )
+        return {
+            "id": identity_id,
+            "role": role_norm,
+            "name": record.name,
+            "org_id": org_id,
+            "owner_user_id": owner_user_id,
+            "public_key": public_key_b64,
+            "reputation_score": 100.0,
+            "session_count": 0,
+        }
+
 
 async def update_agent_reputation(identity_id: str, session_final_score: float) -> None:
     """Update agent reputation using exponential recency weighting."""

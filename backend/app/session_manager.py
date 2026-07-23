@@ -35,9 +35,11 @@ from .db import (
     save_trust_report,
     get_agent_reputation,
     update_agent_reputation_v2,
+    get_or_create_agent_identity,
+    get_agent_identity,
 )
 from .trust.engine import trust_engine
-from .crypto.signing import get_public_key_b64, sign_message, sign_message_for_agent
+from .crypto.signing import sign_message_for_agent
 from .identity.agent_card import get_or_create_agent_card, card_file_path, verify_agent_card
 from .crypto.ledger import _GENESIS_HASH, build_entry, verify_chain
 from .crypto.ledger_alerts import trigger_tamper_alert
@@ -228,6 +230,19 @@ class SessionManager:
             data_source = "mock"
 
         scenario = scenario or DEFAULT_SCENARIO
+
+        # Provision org-scoped signing identities so agents in different orgs never
+        # collide on a shared key (the default buyer_agent_id/seller_agent_id are
+        # shared constants). Each (org_id, role) maps to one persistent identity;
+        # its UUID becomes the signing key identifier used in _persist_message.
+        if buyer_identity_id is None:
+            buyer_identity_id = (
+                await get_or_create_agent_identity(org_id, "buyer", owner_user_id=user_id)
+            )["id"]
+        if seller_identity_id is None:
+            seller_identity_id = (
+                await get_or_create_agent_identity(org_id, "seller", owner_user_id=user_id)
+            )["id"]
 
         agents = self._create_agent_pair(
             buyer_agent_id, seller_agent_id, provider, scenario
@@ -526,24 +541,49 @@ class SessionManager:
             elif msg.sender == session.seller_agent_id:
                 role = "seller"
 
-        # Sign the message per-agent using AgentCard key
+        # Resolve the org-scoped signing identity for this role. Signing keys are
+        # keyed on the (org, role) identity UUID, NOT the shared-constant
+        # buyer_agent_id/seller_agent_id — so agents in different orgs never share a
+        # key. See docs/agent_card_design.md §"Current State & Identity Hardening".
+        signing_identity_id = None
+        if role == "buyer":
+            signing_identity_id = getattr(session, "buyer_identity_id", None) if session else None
+        elif role == "seller":
+            signing_identity_id = getattr(session, "seller_identity_id", None) if session else None
+
+        # Fallback for sessions created/restored without a provisioned identity.
+        if role and not signing_identity_id:
+            ident = await get_or_create_agent_identity(org_id, role, owner_user_id=user_id)
+            signing_identity_id = ident["id"]
+            if session is not None:
+                setattr(session, f"{role}_identity_id", signing_identity_id)
+
+        # Sign the message with the org-scoped AgentCard key
         signature_b64 = None
         public_key_b64 = None
-        if role and msg.sender:
+        if role and signing_identity_id:
             try:
                 get_or_create_agent_card(
-                    agent_id=msg.sender,
+                    agent_id=signing_identity_id,
                     role=role,
                     org_id=org_id,
                     owner_user_id=user_id,
                 )
-                # Enforce AgentCard verification and org-tenancy check at message time
-                c_path = card_file_path(msg.sender)
+                # Enforce AgentCard signature + org-tenancy check at message time
+                c_path = card_file_path(signing_identity_id)
                 if not verify_agent_card(c_path, expected_org_id=org_id):
-                    raise ValueError(f"AgentCard org tenancy check failed for {msg.sender} (expected org_id={org_id})")
+                    raise ValueError(f"AgentCard org tenancy check failed for identity {signing_identity_id} (expected org_id={org_id})")
+
+                # The DB AgentIdentity is the verification authority: its org and
+                # recorded public key must match what we are about to sign with.
+                identity = await get_agent_identity(signing_identity_id)
+                if identity is None or identity.get("org_id") != org_id:
+                    raise ValueError(f"Identity {signing_identity_id} is not registered for org_id={org_id}")
 
                 msg_dict = msg.model_dump(mode="json")
-                signature_b64, public_key_b64 = sign_message_for_agent(msg_dict, msg.sender)
+                signature_b64, public_key_b64 = sign_message_for_agent(msg_dict, signing_identity_id)
+                if identity.get("public_key") and identity["public_key"] != public_key_b64:
+                    raise ValueError(f"Signing key does not match DB authority for identity {signing_identity_id}")
                 msg.signature = signature_b64
                 msg.signer_public_key = public_key_b64
             except Exception as e:

@@ -136,14 +136,22 @@ class TestSigning:
     @patch("app.session_manager.save_message")
     @patch("app.session_manager.save_ledger_entry")
     @patch("app.session_manager.get_ledger_sequence_count", return_value=0)
-    async def test_agent_card_cross_org_message_signing_blocked(self, mock_count, mock_ledger, mock_save):
-        """Mint a card under org_A, attempt _persist_message under org_B session, assert message signing is blocked."""
-        from app.identity.agent_card import generate_agent_card
+    async def test_cross_org_signing_is_tenant_isolated(self, mock_count, mock_ledger, mock_save):
+        """A card pre-minted under org_A is never used to sign an org_B session.
+
+        Under per-(org, role) identities, an org_B session signs with its OWN
+        org-scoped identity key — structural isolation — rather than colliding on,
+        or being blocked by, the org_A card for the same bare agent_id.
+        """
+        import base64
+        from app.identity.agent_card import generate_agent_card, card_file_path
         from app.session_manager import session_manager
         from app.models import NegotiationMessage, MessageType, NegotiationSession, ProposedItem
 
         agent_id = "cross-org-agent-001"
-        generate_agent_card(role="buyer", agent_id=agent_id, org_id="org_A")
+        # org_A pre-mints a card keyed on the bare agent_id.
+        card_a, _ = generate_agent_card(role="buyer", agent_id=agent_id, org_id="org_A")
+        org_a_pubkey = card_a.public_key
 
         session_id = "test-session-cross-org"
         session = NegotiationSession(
@@ -164,8 +172,39 @@ class TestSigning:
 
         await session_manager._persist_message(session_id, msg)
 
-        assert msg.signature is None
-        assert msg.signer_public_key is None
+        # org_B signs successfully — with its own org-scoped identity key.
+        assert msg.signature is not None
+        assert msg.signer_public_key is not None
+        # Structural isolation: org_B did NOT sign with org_A's key.
+        assert msg.signer_public_key != org_a_pubkey
+        # The session now carries a distinct org_B identity (fallback-provisioned).
+        assert session.buyer_identity_id is not None
+        assert session.buyer_identity_id != agent_id
+        # Cryptographic round-trip on the org_B identity key: it signs and verifies,
+        # and org_A's key cannot verify what org_B signed.
+        from app.crypto.signing import sign_message_for_agent
+        sig_b, pub_b = sign_message_for_agent(SAMPLE_MSG, session.buyer_identity_id)
+        assert pub_b == msg.signer_public_key
+        assert verify_signature(SAMPLE_MSG, sig_b, pub_b) is True
+        assert verify_signature(SAMPLE_MSG, sig_b, org_a_pubkey) is False
+
+    @pytest.mark.asyncio
+    async def test_org_scoped_identities_do_not_share_keys(self):
+        """Two orgs resolving the same role get distinct identities and distinct keys."""
+        from app.db import get_or_create_agent_identity
+
+        a1 = await get_or_create_agent_identity("org_alpha", "buyer")
+        a2 = await get_or_create_agent_identity("org_alpha", "buyer")  # idempotent
+        b1 = await get_or_create_agent_identity("org_beta", "buyer")
+
+        # Idempotent within an (org, role)
+        assert a1["id"] == a2["id"]
+        assert a1["public_key"] == a2["public_key"]
+        # Isolated across orgs
+        assert a1["id"] != b1["id"]
+        assert a1["public_key"] != b1["public_key"]
+        assert a1["org_id"] == "org_alpha"
+        assert b1["org_id"] == "org_beta"
 
 
 # ---------------------------------------------------------------------------

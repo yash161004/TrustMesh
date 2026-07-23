@@ -31,20 +31,29 @@ class AgentReputationResponse(BaseModel):
 
 
 @router.get("", response_model=list[AgentCardResponse], summary="List Agent Cards")
-async def list_agent_cards():
-    """List all AgentCards from disk and verify their signatures."""
+async def list_agent_cards(current_user: User = Depends(get_current_user)):
+    """List AgentCards visible to the caller's org and verify their signatures.
+
+    Org tenancy: non-admin callers only see cards bound to their own org_id.
+    Admin/system callers see all cards.
+    """
     cards = []
     if not CARDS_DIR.exists():
         return cards
 
+    is_admin = current_user.role in ("admin", "system")
     for path in CARDS_DIR.glob("*.json"):
         try:
             data = json.loads(path.read_text())
             card_data = data.get("card", {})
             signature = data.get("signature", "")
-            
+
+            # Org tenancy filter — do not leak other orgs' cards.
+            if not is_admin and card_data.get("org_id") != current_user.org_id:
+                continue
+
             is_valid = verify_agent_card(path)
-            
+
             cards.append(AgentCardResponse(
                 agent_id=card_data.get("agent_id", ""),
                 role=card_data.get("role", ""),
