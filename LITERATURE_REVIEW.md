@@ -38,11 +38,11 @@ Separately, there is a growing body of work specifically on LLM deception detect
 
 ## 4. Verifiable Audit Trails and Agent Identity
 
-The closest architectural parallel to TrustMesh's ledger design comes from recent work on cryptographically verifiable execution for AI agents. Hash-chained, append-only audit logs — where each entry's hash incorporates the previous entry's hash, so tampering breaks the chain — appear across several 2025–2026 papers, including a Merkle-DAG-based ledger for autonomous browser agents [7] (using SHA3-256 and Ed25519 signing, structurally very similar to TrustMesh's own Ed25519-signed hash chain) and a bilaterally-signed "Verifiable Interaction Ledger" for agent-tool transactions [8].
+The closest architectural parallel to TrustMesh's ledger design comes from recent work on cryptographic binding and reproducibility verification for AI agent tool use. Hash-chained, append-only audit logs — where each entry's hash incorporates the previous entry's hash, so tampering breaks the chain — appear in this line of work, including a bilaterally-signed "Verifiable Interaction Ledger" for agent-tool transactions [7], structurally close to TrustMesh's own Ed25519-signed hash chain.
 
-On the identity side, the emerging pattern across industry and research is to give agents persistent, verifiable identities distinct from the humans or organizations that operate them — Google's Agent-to-Agent (A2A) protocol [9] and its associated Agent Payments Protocol (AP2) [10] use cryptographically signed mandates for authorization, and there is active work applying decentralized identifiers (DIDs) and verifiable credentials (VCs) to agent identity [11] for exactly this reason. TrustMesh's AgentCard/Ed25519 keypair design is a lightweight version of this same idea, without the DID/blockchain layer.
+On the identity side, the emerging pattern across industry and research is to give agents persistent, verifiable identities distinct from the humans or organizations that operate them — Google's Agent-to-Agent (A2A) protocol [8] and its associated Agent Payments Protocol (AP2) [9] use cryptographically signed mandates for authorization, and there is active work applying decentralized identifiers (DIDs) and verifiable credentials (VCs) to agent identity [10] for exactly this reason. TrustMesh's AgentCard/Ed25519 keypair design is a lightweight version of this same idea, without the DID/blockchain layer.
 
-A 2025 survey on secure autonomous agent payments (the TIVA framework) [12] makes the case most directly relevant to TrustMesh's B2B framing: that immutable audit logs and provable authorization are necessary infrastructure for any AI agent that transacts on someone's behalf, because without them there is no way to resolve disputes about what an agent actually did.
+A 2025 survey on secure autonomous agent payments (the TIVA framework) [11] makes the case most directly relevant to TrustMesh's B2B framing: that immutable audit logs and provable authorization are necessary infrastructure for any AI agent that transacts on someone's behalf, because without them there is no way to resolve disputes about what an agent actually did.
 
 **Relevance to TrustMesh:** this is the thread where TrustMesh is most clearly building something with real precedent rather than inventing from scratch — hash-chained signed ledgers for agent accountability are an active, current research and industry pattern. The honest framing is: TrustMesh applies an established audit-trail pattern to a domain (LLM negotiation) where it hasn't commonly been applied yet, rather than inventing a new cryptographic primitive.
 
@@ -82,14 +82,12 @@ Three observations, each grounded in the above:
 
 [6] S. Kumar, "Pressure-Testing Deception Probes in LLMs: Scaling, Robustness, and the Geometry of Deceptive Representations," arXiv:2605.27958, May 2026.
 
-[7] L.-K. Alpasan, "Cryptographic Audit Ledgers for Autonomous Browser Agents: Verifiable Action Logging with SHA3-256," The Anticloud Research Corpus, 2026.
+[7] Z. Zhou, "Governing Dynamic Capabilities: Cryptographic Binding and Reproducibility Verification for AI Agent Tool Use," arXiv:2603.14332, Mar. 2026.
 
-[8] Z. Zhou, "Governing Dynamic Capabilities: Cryptographic Binding and Reproducibility Verification for AI Agent Tool Use," arXiv:2603.14332, Mar. 2026.
+[8] Google / Linux Foundation, "Agent2Agent (A2A) Protocol Specification v0.3," 2025. [Online]. Available: https://github.com/google/A2A
 
-[9] Google / Linux Foundation, "Agent2Agent (A2A) Protocol Specification v0.3," 2025. [Online]. Available: https://github.com/google/A2A
+[9] Google, "Agent Payments Protocol (AP2)," Sep. 2025. [Online]. Available: https://github.com/google-agentic-commerce/AP2
 
-[10] Google, "Agent Payments Protocol (AP2)," Sep. 2025. [Online]. Available: https://github.com/google-agentic-commerce/AP2
+[10] C. Mazzocca, A. Acar, S. Uluagac, R. Montanari, P. Bellavista, and M. Conti, "A Survey on Decentralized Identifiers and Verifiable Credentials," *IEEE Communications Surveys & Tutorials*, vol. 27, no. 6, pp. 3641–3671, 2025.
 
-[11] C. Mazzocca, A. Acar, S. Uluagac, R. Montanari, P. Bellavista, and M. Conti, "A Survey on Decentralized Identifiers and Verifiable Credentials," *IEEE Communications Surveys & Tutorials*, vol. 27, no. 6, pp. 3641–3671, 2025.
-
-[12] V. Acharya, "Secure Autonomous Agent Payments: Verifying Authenticity and Intent in a Trustless Environment," arXiv:2511.15712, Nov. 2025.
+[11] V. Acharya, "Secure Autonomous Agent Payments: Verifying Authenticity and Intent in a Trustless Environment," arXiv:2511.15712, Nov. 2025.
