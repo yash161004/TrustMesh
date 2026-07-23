@@ -222,7 +222,7 @@ async def preflight_quota_check(primary_provider: str = "groq", max_wait_sec: in
             try:
                 res = await client.generate(
                     messages=[{"role": "user", "content": "Respond with OK"}],
-                    system_prompt="You are a health check assistant.",
+                    system="You are a health check assistant.",
                     temperature=0.1,
                 )
                 if res:
