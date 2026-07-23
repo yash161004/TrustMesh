@@ -258,6 +258,7 @@ class SessionManager:
             created_at=session.created_at,
             scenario_json=scenario.model_dump_json(),
             data_source=data_source,
+            model_provider=provider,
         )
 
         async with self._lock:

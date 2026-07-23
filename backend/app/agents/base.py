@@ -71,18 +71,50 @@ Always respond with valid JSON only, no other text."""
 
         try:
             response_data = json.loads(response_text)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             response_data = self._fallback_response(context)
 
+        msg_type_str = response_data.get("message_type", "OFFER")
+        try:
+            msg_type = MessageType(msg_type_str)
+        except ValueError:
+            msg_type = MessageType.OFFER
+
+        raw_price = response_data.get("price")
+        try:
+            price_val = float(raw_price) if raw_price is not None else 0.0
+        except (ValueError, TypeError):
+            price_val = 0.0
+
+        notes_str = response_data.get("notes", "")
+
+        # If price is <= 0 for OFFER or COUNTER_OFFER, extract price from notes or context fallback
+        if msg_type in (MessageType.OFFER, MessageType.COUNTER_OFFER) and price_val <= 0.0:
+            import re
+            matches = re.findall(r"\$?\s*([0-9]+(?:\.[0-9]+)?)", notes_str)
+            found_price = None
+            for match in matches:
+                try:
+                    val = float(match)
+                    if val > 0:
+                        found_price = val
+                        break
+                except ValueError:
+                    pass
+            if found_price is not None:
+                price_val = found_price
+            else:
+                price_val = float(context.get("last_price", context.get("starting_price", 100.0)))
+
         message = NegotiationMessage(
-            message_type=MessageType(response_data.get("message_type", "OFFER")),
+            message_type=msg_type,
             sender=self.agent_id,
-            price=float(response_data.get("price", 0)),
+            price=price_val,
             quantity=int(response_data.get("quantity", 1)),
             delivery_terms=response_data.get("delivery_terms", "Net-30"),
             timestamp=datetime.now(timezone.utc),
             turn_number=self.turn_number,
-            notes=response_data.get("notes", ""),
+            notes=notes_str,
         )
 
         self.add_message(message)

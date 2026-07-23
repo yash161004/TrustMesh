@@ -184,7 +184,7 @@ def _get_router():
         model_list.append({
             "model_name": "nvidia-voter",
             "litellm_params": {
-                "model": "openai/meta/llama-3.3-70b-instruct",
+                "model": "openai/meta/llama-3.1-70b-instruct",
                 "api_base": "https://integrate.api.nvidia.com/v1",
                 "api_key": nvidia_key,
                 "rpm": 30,

@@ -19,8 +19,8 @@ async def run():
     async with factory() as db:
         res = await db.execute(
             select(SessionRecord)
+            .where(SessionRecord.data_source == "real_llm_v6")
             .order_by(SessionRecord.created_at.desc())
-            .limit(10)
         )
         records = res.scalars().all()
         out = [

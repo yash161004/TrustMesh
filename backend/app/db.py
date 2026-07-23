@@ -119,6 +119,7 @@ class SessionRecord(Base):
     scenario_json = Column(Text, nullable=True)  # JSON-encoded NegotiationScenario
     tamper_alerted_at = Column(DateTime(timezone=True), nullable=True)
     data_source = Column(String(36), nullable=True, default="synthetic")  # "synthetic" or "real_llm_vX"
+    model_provider = Column(String(36), nullable=True, default="gemini")  # "groq", "gemini", "nvidia", "openrouter"
 
     messages = relationship(
         "MessageRecord",
@@ -232,6 +233,7 @@ async def init_db() -> None:
             ("seller_identity_id", "VARCHAR(36)", "TEXT"),
             ("tamper_alerted_at", "TIMESTAMP WITH TIME ZONE", "DATETIME"),
             ("data_source", "VARCHAR(36) DEFAULT 'real'", "TEXT DEFAULT 'real'"),
+            ("model_provider", "VARCHAR(36) DEFAULT 'gemini'", "TEXT DEFAULT 'gemini'"),
         ]:
             col_type = col_type_lite if _async_engine.dialect.name == "sqlite" else col_type_pg
             if _async_engine.dialect.name == "sqlite":
@@ -388,6 +390,7 @@ async def save_session(
     user_id: Optional[str] = None,
     org_id: Optional[str] = None,
     data_source: Optional[str] = "real",
+    model_provider: Optional[str] = "gemini",
 ) -> None:
     """Insert or update a session record."""
     factory = get_session_factory()
@@ -412,6 +415,8 @@ async def save_session(
                 existing.org_id = org_id
             if data_source is not None:
                 existing.data_source = data_source
+            if model_provider is not None:
+                existing.model_provider = model_provider
         else:
             new_session = SessionRecord(
                 id=session_id,
@@ -427,6 +432,7 @@ async def save_session(
                 outcome=outcome,
                 scenario_json=scenario_json,
                 data_source=data_source,
+                model_provider=model_provider,
             )
             db.add(new_session)
         await db.commit()
@@ -557,6 +563,7 @@ def _session_record_to_dict(record: SessionRecord) -> dict:
         "outcome": record.outcome,
         "scenario_json": record.scenario_json,
         "data_source": getattr(record, "data_source", "real"),
+        "model_provider": getattr(record, "model_provider", "gemini"),
         "messages": [
             _message_record_to_dict(m) for m in (record.messages or [])
         ],
