@@ -195,6 +195,7 @@ class SessionManager:
         seller_identity_id: Optional[str] = None,
         user_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        data_source: str = "real",
     ) -> NegotiationSession:
         """Create a new negotiation session with buyer and seller agents.
 
@@ -207,15 +208,24 @@ class SessionManager:
         session_id = str(uuid4())
         settings = get_settings()
 
-        # Auto-detect mock mode: if no valid API key, force mock even if
-        # provider is explicitly set to "gemini" or "groq"
+        # Strict provider validation: if real dataset generation is requested, fail fast if API key is missing.
         from .llm_client import _resolve_api_key as _has_key
-        if not provider or (provider == "gemini" and not _has_key(settings.gemini_api_key)):
+        is_real_run = data_source and "real" in data_source.lower()
+
+        if provider == "gemini" and not _has_key(settings.gemini_api_key):
+            if is_real_run:
+                raise ValueError("Cannot create real session: GEMINI_API_KEY is missing or placeholder.")
             provider = "mock"
-            logger.info("No valid Gemini API key — forcing mock mode")
+            logger.warning("No valid Gemini API key — forcing mock mode")
+
         if provider == "groq" and not _has_key(settings.groq_api_key):
+            if is_real_run:
+                raise ValueError("Cannot create real session: GROQ_API_KEY is missing or placeholder.")
             provider = "mock"
-            logger.info("No valid Groq API key — forcing mock mode")
+            logger.warning("No valid Groq API key — forcing mock mode")
+
+        if provider == "mock":
+            data_source = "mock"
 
         scenario = scenario or DEFAULT_SCENARIO
 
@@ -235,7 +245,7 @@ class SessionManager:
             created_at=datetime.now(timezone.utc),
         )
 
-        # Persist to SQLite
+        # Persist to DB
         await save_session(
             session_id=session_id,
             user_id=user_id,
@@ -247,6 +257,7 @@ class SessionManager:
             status=session.status.value,
             created_at=session.created_at,
             scenario_json=scenario.model_dump_json(),
+            data_source=data_source,
         )
 
         async with self._lock:
@@ -354,13 +365,17 @@ class SessionManager:
                 }
 
                 try:
-                    response = await current_agent.generate_response(turn_context)
+                    temp = turn_context.get("temperature", 0.7)
+                    response = await current_agent.generate_response(turn_context, temperature=temp)
                     session.messages.append(response)
                     messages.append(response)
                     turn_count += 1
 
-                    # Persist each message to SQLite immediately
+                    # Persist each message immediately
                     await self._persist_message(session_id, response)
+
+                    # Throttle turn generation to stay under 15 RPM (1 call every 6s = 10 RPM max)
+                    await asyncio.sleep(6.0)
 
                     logger.info(
                         "Session %s Turn %d: %s -> %s @ %s%.2f/unit | %s",
@@ -627,14 +642,12 @@ class SessionManager:
 
         # Apply reputation update ONLY on first calculation if requested
         if update_reputation and not recompute:
-            # Check cached again just in case there was a race condition
-            cached = await load_trust_report(session_id)
-            # Actually, save_trust_report uses UPSERT and doesn't tell us if it inserted.
-            # But we already checked `cached` at the beginning of the function.
             if session.buyer_agent_id:
                 await update_agent_reputation_v2(session.buyer_agent_id, report.buyer_score.violation_count)
             if session.seller_agent_id:
                 await update_agent_reputation_v2(session.seller_agent_id, report.seller_score.violation_count)
+
+
 
         return report.model_dump(mode="json")
 

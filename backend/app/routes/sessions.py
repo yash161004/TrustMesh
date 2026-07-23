@@ -434,6 +434,77 @@ async def get_ledger(
 
 
 # --------------------------------------------------------------------------- #
+# Deal outcome prediction (Tier 1 #1 — classical ML on session history)
+# --------------------------------------------------------------------------- #
+
+class DealPredictionResponse(BaseModel):
+    """P(deal closes) for a session's current state, from the model trained
+    by scripts/train_deal_outcome_model.py. model_available=False (with the
+    other fields null) means no model has been trained yet -- this is the
+    expected state until someone runs the training script with enough
+    labeled session history, not an error."""
+    session_id: str
+    model_available: bool
+    p_deal: Optional[float] = None
+    model_name: Optional[str] = None
+    trained_at: Optional[str] = None
+
+
+@router.get(
+    "/{session_id}/prediction",
+    response_model=DealPredictionResponse,
+    summary="Predict Deal Outcome",
+)
+async def predict_session_outcome(session_id: str, user: User = Depends(get_current_user)):
+    """
+    Score a session's current state with the deal-outcome model.
+
+    Uses only the cached trust report (never triggers a fresh LLM
+    evaluation), so this stays a fast, cheap read safe to poll from a
+    dashboard. If no model has been trained yet, returns
+    model_available=False rather than an error -- callers should hide the
+    prediction UI in that case, not surface a failure state.
+    """
+    from ..ml.predict import predict_deal_probability, model_available
+    from ..db import load_trust_report as _load_trust_report_raw
+
+    try:
+        session = await session_manager.get_session(session_id)
+        if user.role != "admin" and (not session.org_id or not user.org_id or session.org_id != user.org_id):
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this session.")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if not model_available():
+        return DealPredictionResponse(session_id=session_id, model_available=False)
+
+    scenario = session_manager.scenarios.get(session_id, DEFAULT_SCENARIO).model_dump(mode="json")
+
+    messages = await session_manager.get_messages(session_id)
+    message_dicts = [m.model_dump(mode="json") for m in messages]
+
+    cached = await _load_trust_report_raw(session_id)
+    trust_report = None
+    if cached and cached.get("report_json"):
+        try:
+            trust_report = json.loads(cached["report_json"])
+        except (TypeError, ValueError):
+            trust_report = None
+
+    result = predict_deal_probability(scenario, message_dicts, trust_report)
+    if result is None:
+        return DealPredictionResponse(session_id=session_id, model_available=False)
+
+    return DealPredictionResponse(
+        session_id=session_id,
+        model_available=True,
+        p_deal=result["p_deal"],
+        model_name=result["model_name"],
+        trained_at=result["trained_at"],
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Phase 4: WebSocket live stream
 # --------------------------------------------------------------------------- #
 from ..auth.dependencies import get_current_user, get_current_user_ws

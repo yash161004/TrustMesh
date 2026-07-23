@@ -62,12 +62,12 @@ Always respond with valid JSON only, no other text."""
         """Create the first offer for this agent's role."""
         ...
 
-    async def generate_response(self, context: dict) -> NegotiationMessage:
+    async def generate_response(self, context: dict, temperature: float = 0.7) -> NegotiationMessage:
         """Generate a response based on negotiation history and context."""
         self.turn_number += 1
 
         messages = self._build_messages(context)
-        response_text = await self.llm_client.generate(messages, self.system_prompt)
+        response_text = await self.llm_client.generate(messages, self.system_prompt, temperature=temperature)
 
         try:
             response_data = json.loads(response_text)

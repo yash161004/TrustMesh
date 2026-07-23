@@ -118,6 +118,7 @@ class SessionRecord(Base):
     outcome = Column(String(20), nullable=True)  # "DEAL", "NO_DEAL", "FAILED"
     scenario_json = Column(Text, nullable=True)  # JSON-encoded NegotiationScenario
     tamper_alerted_at = Column(DateTime(timezone=True), nullable=True)
+    data_source = Column(String(36), nullable=True, default="real")  # "real" or "synthetic"
 
     messages = relationship(
         "MessageRecord",
@@ -138,7 +139,9 @@ class MessageRecord(Base):
     )
     message_type = Column(String(20), nullable=False)
     sender = Column(String(128), nullable=False)
-    proposed_items_json = Column(Text, nullable=False)
+    proposed_items_json = Column(Text, nullable=True)
+    price = Column(Float, nullable=True, default=0.0)
+    quantity = Column(Integer, nullable=True, default=1)
     delivery_terms = Column(String(512), nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)
     turn_number = Column(Integer, nullable=False)
@@ -221,46 +224,49 @@ async def init_db() -> None:
     async with _async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    if _async_engine.dialect.name == "sqlite":
-        # Migration: add scenario_json column if the table already exists without it
-        async with _async_engine.begin() as conn:
-            # Check if column exists
-            result = await conn.execute(
-                text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='scenario_json'")
-            )
-            row = result.one()
-            if row.cnt == 0:
-                await conn.execute(
-                    text("ALTER TABLE negotiation_sessions ADD COLUMN scenario_json TEXT")
+    # Migrations for existing tables missing new columns
+    async with _async_engine.begin() as conn:
+        for col_name, col_type_pg, col_type_lite in [
+            ("scenario_json", "TEXT", "TEXT"),
+            ("buyer_identity_id", "VARCHAR(36)", "TEXT"),
+            ("seller_identity_id", "VARCHAR(36)", "TEXT"),
+            ("tamper_alerted_at", "TIMESTAMP WITH TIME ZONE", "DATETIME"),
+            ("data_source", "VARCHAR(36) DEFAULT 'real'", "TEXT DEFAULT 'real'"),
+        ]:
+            col_type = col_type_lite if _async_engine.dialect.name == "sqlite" else col_type_pg
+            if _async_engine.dialect.name == "sqlite":
+                res = await conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='{col_name}'")
                 )
-                logger.info("Added scenario_json column to negotiation_sessions.")
+            else:
+                res = await conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM information_schema.columns WHERE table_name='negotiation_sessions' AND column_name='{col_name}'")
+                )
+            if res.one().cnt == 0:
+                await conn.execute(text(f"ALTER TABLE negotiation_sessions ADD COLUMN {col_name} {col_type}"))
+                logger.info(f"Added {col_name} column to negotiation_sessions.")
 
-        # Migration: add signer_public_key column if the table already exists without it
-        async with _async_engine.begin() as conn:
-            result = await conn.execute(
-                text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_messages') WHERE name='signer_public_key'")
-            )
-            row = result.one()
-            if row.cnt == 0:
-                await conn.execute(
-                    text("ALTER TABLE negotiation_messages ADD COLUMN signer_public_key TEXT")
+        # Check negotiation_messages missing columns
+        for msg_col, col_type_pg, col_type_lite in [
+            ("proposed_items_json", "TEXT", "TEXT"),
+            ("delivery_terms", "VARCHAR(512)", "TEXT"),
+            ("notes", "TEXT", "TEXT"),
+            ("signer_public_key", "TEXT", "TEXT"),
+            ("price", "DOUBLE PRECISION DEFAULT 0.0", "REAL DEFAULT 0.0"),
+            ("quantity", "INTEGER DEFAULT 1", "INTEGER DEFAULT 1"),
+        ]:
+            col_type = col_type_lite if _async_engine.dialect.name == "sqlite" else col_type_pg
+            if _async_engine.dialect.name == "sqlite":
+                res = await conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_messages') WHERE name='{msg_col}'")
                 )
-                logger.info("Added signer_public_key column to negotiation_messages.")
-
-        # Migration: add identity foreign keys if missing
-        async with _async_engine.begin() as conn:
-            result = await conn.execute(
-                text("SELECT COUNT(*) AS cnt FROM pragma_table_info('negotiation_sessions') WHERE name='buyer_identity_id'")
-            )
-            row = result.one()
-            if row.cnt == 0:
-                await conn.execute(
-                    text("ALTER TABLE negotiation_sessions ADD COLUMN buyer_identity_id TEXT")
+            else:
+                res = await conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM information_schema.columns WHERE table_name='negotiation_messages' AND column_name='{msg_col}'")
                 )
-                await conn.execute(
-                    text("ALTER TABLE negotiation_sessions ADD COLUMN seller_identity_id TEXT")
-                )
-                logger.info("Added identity foreign keys to negotiation_sessions.")
+            if res.one().cnt == 0:
+                await conn.execute(text(f"ALTER TABLE negotiation_messages ADD COLUMN {msg_col} {col_type}"))
+                logger.info(f"Added {msg_col} column to negotiation_messages.")
 
     _async_session_factory = async_sessionmaker(
         _async_engine, class_=AsyncSession, expire_on_commit=False
@@ -381,6 +387,7 @@ async def save_session(
     scenario_json: Optional[str] = None,
     user_id: Optional[str] = None,
     org_id: Optional[str] = None,
+    data_source: Optional[str] = "real",
 ) -> None:
     """Insert or update a session record."""
     factory = get_session_factory()
@@ -403,6 +410,8 @@ async def save_session(
                 existing.user_id = user_id
             if org_id is not None:
                 existing.org_id = org_id
+            if data_source is not None:
+                existing.data_source = data_source
         else:
             new_session = SessionRecord(
                 id=session_id,
@@ -417,6 +426,7 @@ async def save_session(
                 final_price=final_price,
                 outcome=outcome,
                 scenario_json=scenario_json,
+                data_source=data_source,
             )
             db.add(new_session)
         await db.commit()
@@ -433,7 +443,9 @@ async def save_message(
     notes: Optional[str] = None,
     signer_public_key: Optional[str] = None,
 ) -> int:
-    """Insert a message record and return its auto-incremented id."""
+    # Convenience columns: extracts first line item only; see proposed_items_json for full multi-SKU list
+    first_price = proposed_items[0].get("price", 0.0) if proposed_items else 0.0
+    first_qty = proposed_items[0].get("quantity", 1) if proposed_items else 1
     factory = get_session_factory()
     async with factory() as db:
         record = MessageRecord(
@@ -441,6 +453,8 @@ async def save_message(
             message_type=message_type,
             sender=sender,
             proposed_items_json=json.dumps(proposed_items),
+            price=first_price,
+            quantity=first_qty,
             delivery_terms=delivery_terms,
             timestamp=timestamp,
             turn_number=turn_number,
@@ -542,6 +556,7 @@ def _session_record_to_dict(record: SessionRecord) -> dict:
         "final_price": record.final_price,
         "outcome": record.outcome,
         "scenario_json": record.scenario_json,
+        "data_source": getattr(record, "data_source", "real"),
         "messages": [
             _message_record_to_dict(m) for m in (record.messages or [])
         ],
