@@ -209,11 +209,29 @@ async def preflight_quota_check(primary_provider: str = "groq", max_wait_sec: in
     """Verify all pipeline providers (negotiation turn provider + trust judge provider) are healthy."""
     from app.llm_client import get_llm_client
     
-    # Check negotiation turn provider, trust engine judge provider (gemini), and tiebreak fallback (openrouter)
     providers_to_check = list(dict.fromkeys([primary_provider, "gemini", "openrouter"]))
     logger.info(f"Performing pre-flight rate-limit health check for providers: {providers_to_check}...")
     
     for provider in providers_to_check:
+        if provider == "openrouter":
+            # Fallback-only path (voter tiebreak). Don't block the batch on it —
+            # log a warning and continue if unhealthy.
+            try:
+                client = get_llm_client(provider)
+                res = await client.generate(
+                    messages=[{"role": "user", "content": "Respond with OK"}],
+                    system="You are a health check assistant.",
+                    temperature=0.1,
+                )
+                if res:
+                    logger.info(f"Pre-flight health check PASSED for provider '{provider}'.")
+            except Exception as e:
+                logger.warning(
+                    f"Pre-flight check: fallback provider '{provider}' unhealthy ({e}). "
+                    f"Proceeding anyway — it's a fallback path, not a hard dependency."
+                )
+            continue
+
         client = get_llm_client(provider)
         start_time = time.time()
         provider_healthy = False
