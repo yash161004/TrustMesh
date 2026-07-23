@@ -23,7 +23,6 @@ implicitly by any session that actually runs (not just offline utility scripts l
 `generate_agent_cards.py`).
 
 **Not yet done (real remaining gap, not a parking decision):**
-- Cross-session reputation doesn't yet key off AgentCard identity — `buyer_trust_score`/
-  `seller_trust_score` inputs to `evaluate_session` are still session-scoped, not a persistent
-  ledger keyed by `agent_id` across sessions/orgs. That's the next real step (Advanced Roadmap
-  §Tier 2 #6), not "finish wiring AgentCard" — wiring is done.
+- The persistent cross-session reputation ledger itself already exists and is wired — `AgentReputationRecord` in `db.py`, keyed by `agent_id` (the same ID AgentCard signs with). `session_manager.py::evaluate_trust_for_session` reads it via `get_agent_reputation()` before scoring, feeds it into `evaluate_session` as the prior, and writes it back via `update_agent_reputation_v2()` after. This is a real, live read-score-write loop, not a stub.
+- The actual gap: **this data is invisible to any user.** `get_agent_reputation` is only called internally — there's no API route exposing an agent's reputation/history, and nothing in the frontend (`AgentDirectory.tsx`, `api.ts`) surfaces it. The mechanism that makes the "reputation-portable agent identity" business pitch (Advanced Roadmap §4 item 3) real already exists; what's missing is making it visible — a `GET /api/v1/agents/{agent_id}/reputation` endpoint and a reputation history view in the agent directory page.
+- Secondary, lower-priority improvement once visibility exists: the update rule itself is a flat penalty/recovery (`-0.1` per session with any violation, `+0.02` clean-session recovery, uncapped by severity) — works, but doesn't weight by violation severity or decay old violations over time. Worth revisiting after it's actually visible to someone, not before.
