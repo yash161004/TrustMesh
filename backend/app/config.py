@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     groq_api_key: str = ""
     openrouter_api_key: str = ""
+    nvidia_api_key: str = ""
     llm_provider_chain: str = "groq,gemini,openrouter,mock"
     enable_calibration_anchor: bool = False
 

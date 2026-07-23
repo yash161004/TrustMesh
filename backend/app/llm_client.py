@@ -126,6 +126,7 @@ def _get_router():
     groq_key = _resolve_api_key(settings.groq_api_key) or _get_env_key("GROQ_API_KEY")
     gemini_key = _resolve_api_key(settings.gemini_api_key) or _get_env_key("GEMINI_API_KEY")
     openrouter_key = _resolve_api_key(settings.openrouter_api_key) or _get_env_key("OPENROUTER_API_KEY")
+    nvidia_key = _resolve_api_key(settings.nvidia_api_key) or _get_env_key("NVIDIA_API_KEY")
     
     model_list = []
     
@@ -178,6 +179,17 @@ def _get_router():
                 }
             },
         })
+
+    if nvidia_key:
+        model_list.append({
+            "model_name": "nvidia-voter",
+            "litellm_params": {
+                "model": "openai/meta/llama-3.3-70b-instruct",
+                "api_base": "https://integrate.api.nvidia.com/v1",
+                "api_key": nvidia_key,
+                "rpm": 60,
+            },
+        })
         
     _router = Router(
         model_list=model_list,
@@ -187,8 +199,8 @@ def _get_router():
         allowed_fails=2,
         cooldown_time=30,
         fallbacks=[
-            {"gemini-voter": ["openrouter-tiebreak"]},
-            {"groq-voter": ["openrouter-tiebreak"]}
+            {"gemini-voter": ["nvidia-voter", "openrouter-tiebreak"]},
+            {"groq-voter": ["nvidia-voter", "openrouter-tiebreak"]}
         ],
     )
     return _router
@@ -196,7 +208,9 @@ def _get_router():
 _provider_semaphores = {
     "gemini": asyncio.Semaphore(2),
     "groq": asyncio.Semaphore(2),
-    "openrouter": asyncio.Semaphore(2)
+    "openrouter": asyncio.Semaphore(2),
+    "nvidia": asyncio.Semaphore(2),
+    "kimi": asyncio.Semaphore(2)
 }
 
 _CURRENCY_SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
@@ -527,6 +541,10 @@ def get_llm_client(provider: str = None) -> LLMClient:
     elif provider == "openrouter":
         key = _resolve_api_key(settings.openrouter_api_key)
         return LiteLLMClient("openrouter-tiebreak", "openrouter") if key else LiteLLMClient("mock", "mock")
+
+    elif provider in ("nvidia", "kimi"):
+        key = _resolve_api_key(settings.nvidia_api_key) or _get_env_key("NVIDIA_API_KEY")
+        return LiteLLMClient("nvidia-voter", "nvidia") if key else LiteLLMClient("mock", "mock")
         
     elif provider == "mock":
         return LiteLLMClient("mock", "mock")

@@ -209,11 +209,11 @@ async def preflight_quota_check(primary_provider: str = "groq", max_wait_sec: in
     """Verify all pipeline providers (negotiation turn provider + trust judge provider) are healthy."""
     from app.llm_client import get_llm_client
     
-    providers_to_check = list(dict.fromkeys([primary_provider, "gemini", "openrouter"]))
+    providers_to_check = list(dict.fromkeys([primary_provider, "gemini", "nvidia", "openrouter"]))
     logger.info(f"Performing pre-flight rate-limit health check for providers: {providers_to_check}...")
     
     for provider in providers_to_check:
-        if provider == "openrouter":
+        if provider in ("openrouter", "nvidia") and provider != primary_provider:
             # Fallback-only path (voter tiebreak). Don't block the batch on it —
             # log a warning and continue if unhealthy.
             try:
