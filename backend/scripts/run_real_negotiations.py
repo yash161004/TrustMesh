@@ -205,8 +205,41 @@ async def run_single_session_with_retries(
     return {"status": "RATE_LIMIT_FAILED", "outcome": "FAILED", "msg_count": 0}
 
 
-async def run_batch(num_sessions: int = 10, provider: str = "groq", tag: str = "real_llm_v6"):
+async def preflight_quota_check(provider: str, max_wait_sec: int = 300) -> bool:
+    """Verify provider is not in rate-limit cooldown before starting a batch run."""
+    from app.llm_client import get_llm_client
+    client = get_llm_client(provider)
+    logger.info(f"Performing pre-flight rate-limit health check for provider '{provider}'...")
+    
+    start_time = time.time()
+    while time.time() - start_time < max_wait_sec:
+        try:
+            res = await client.generate(
+                messages=[{"role": "user", "content": "Respond with OK"}],
+                system_prompt="You are a health check assistant.",
+                temperature=0.1,
+            )
+            if res:
+                logger.info(f"Pre-flight health check PASSED for '{provider}'. Starting batch.")
+                return True
+        except Exception as e:
+            if "RateLimit" in str(e) or "429" in str(e) or "cooldown" in str(e).lower():
+                logger.warning(f"Pre-flight check: '{provider}' rate-limited/cooldown active. Waiting 30s before retry...")
+                await asyncio.sleep(30.0)
+            else:
+                logger.warning(f"Pre-flight check non-fatal error: {e}. Proceeding with batch.")
+                return True
+    logger.error(f"Pre-flight check FAILED: '{provider}' remained rate-limited after {max_wait_sec}s.")
+    return False
+
+
+async def run_batch(num_sessions: int = 5, provider: str = "groq", tag: str = "real_llm_v6"):
     await init_db()
+    healthy = await preflight_quota_check(provider)
+    if not healthy:
+        logger.error("Aborting batch execution due to persistent provider rate-limit cooldown.")
+        return []
+
     logger.info(f"Starting THROTTLED real LLM batch of {num_sessions} sessions (provider={provider}, tag={tag})...")
     
     start_time = time.time()
@@ -222,7 +255,7 @@ async def run_batch(num_sessions: int = 10, provider: str = "groq", tag: str = "
 
 
 if __name__ == "__main__":
-    num = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    num = int(sys.argv[1]) if len(sys.argv) > 1 else 5
     prov = sys.argv[2] if len(sys.argv) > 2 else "groq"
     tg = sys.argv[3] if len(sys.argv) > 3 else "real_llm_v6"
     asyncio.run(run_batch(num_sessions=num, provider=prov, tag=tg))
