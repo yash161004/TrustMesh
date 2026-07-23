@@ -501,6 +501,24 @@ class NegotiationScenario(BaseModel):
         description="Premium per unit for expedited delivery; None = not available.",
     )
 
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _validate_currency(cls, v: str) -> str:
+        """Normalize and validate the currency against the config-driven registry.
+
+        The registry (env var TRUSTMESH_CURRENCIES) is the single source of truth —
+        do not hardcode currency lists elsewhere. Unknown codes are rejected rather
+        than silently accepted.
+        """
+        from .currency_registry import registry
+        code = str(v).strip().upper()
+        if not registry.is_valid(code):
+            raise ValueError(
+                f"Unsupported currency {v!r}. Configured currencies: "
+                f"{', '.join(registry.codes)}. Add it to TRUSTMESH_CURRENCIES to enable."
+            )
+        return code
+
     @model_validator(mode="after")
     def _check_price_sanity(self):
         """Raise error if the buyer and seller price ranges don't overlap for any line item."""

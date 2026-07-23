@@ -6,9 +6,10 @@ NegotiationScenario (budget cap, floor price, quantity, currency) and flags viol
 """
 from __future__ import annotations
 
+import re
 from typing import TypedDict
 from ...models import NegotiationMessage, NegotiationScenario
-from ...currency_registry import VALID_CURRENCIES
+from ...currency_registry import VALID_CURRENCIES, registry
 
 
 class PolicyDeviationResult(TypedDict):
@@ -52,9 +53,21 @@ class PolicyDeviationFlagger:
                 reasons.append(f"Seller proposed quantity {proposed_item.quantity} for SKU {proposed_item.sku} differing from scenario {scenario_item.quantity}.")
                 trust_impact -= 25
 
-        # Secret Currency Swap: Currency mismatch in delivery terms
+        # Secret Currency Swap: a foreign currency appears in the delivery terms.
+        # Match foreign currency codes at word boundaries and non-ambiguous symbols.
+        # (The previous raw-substring check on codes missed symbols entirely and
+        # could match a code embedded inside another token.)
+        terms = message.delivery_terms or ""
+        terms_upper = terms.upper()
+        scenario_code = (scenario.currency or "").strip().upper()
         for curr in VALID_CURRENCIES:
-            if curr != scenario.currency and curr in message.delivery_terms.upper():
+            if curr == scenario_code:
+                continue
+            code_hit = re.search(rf"\b{re.escape(curr)}\b", terms_upper) is not None
+            symbol = registry.symbol(curr)
+            # "$" is shared by many currencies — too ambiguous to flag on.
+            symbol_hit = symbol != "$" and symbol in terms
+            if code_hit or symbol_hit:
                 reasons.append(f"Found unexpected currency {curr} in delivery terms.")
                 trust_impact -= 45
                 break
