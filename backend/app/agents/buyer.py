@@ -71,7 +71,8 @@ Negotiation strategy:
 2. Counter with small increases (5-8%) each turn.
 3. Trade faster delivery for slightly higher price if needed.
 4. Know when to walk away if price exceeds budget cap for any item.
-5. Consider delivery terms: {s.delivery_preference_days}-day delivery is preferred.
+5. If the seller's price is within your budget cap and within 5% of your target, accept the deal with "message_type": "ACCEPT".
+6. Consider delivery terms: {s.delivery_preference_days}-day delivery is preferred.
 {expedited_section}
 Response format (JSON only):
 {{

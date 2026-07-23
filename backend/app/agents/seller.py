@@ -65,7 +65,8 @@ Negotiation strategy:
 3. Emphasize quality, durability, and warranty
 {expedited_section}4. Standard {s.standard_delivery_days}-day delivery is included in the base price
 5. Know when to hold firm — don't go below {s.currency}{s.seller_floor_price:.2f}/unit
-6. Volume commitment ({s.quantity} units) deserves some discount
+6. If the buyer's price is at or above your floor price and within 5% of your target, accept the deal with "message_type": "ACCEPT".
+7. Volume commitment ({s.quantity} units) deserves some discount
 
 Response format (JSON only):
 {{

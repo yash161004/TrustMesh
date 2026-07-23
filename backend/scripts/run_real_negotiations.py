@@ -153,7 +153,7 @@ async def run_single_session_with_retries(
             # Process turns with 3.0s pacing delay between turns to stay under 30 RPM
             messages = await session_manager.process_turn(
                 session_id=sess.session_id,
-                max_turns=8,
+                max_turns=12,
                 context={"temperature": 0.7}
             )
             msg_count = len(messages)
