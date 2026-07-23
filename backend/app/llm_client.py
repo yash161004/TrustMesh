@@ -187,7 +187,7 @@ def _get_router():
                 "model": "openai/meta/llama-3.3-70b-instruct",
                 "api_base": "https://integrate.api.nvidia.com/v1",
                 "api_key": nvidia_key,
-                "rpm": 60,
+                "rpm": 30,
             },
         })
         
@@ -210,7 +210,6 @@ _provider_semaphores = {
     "groq": asyncio.Semaphore(2),
     "openrouter": asyncio.Semaphore(2),
     "nvidia": asyncio.Semaphore(2),
-    "kimi": asyncio.Semaphore(2)
 }
 
 _CURRENCY_SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
@@ -542,7 +541,7 @@ def get_llm_client(provider: str = None) -> LLMClient:
         key = _resolve_api_key(settings.openrouter_api_key)
         return LiteLLMClient("openrouter-tiebreak", "openrouter") if key else LiteLLMClient("mock", "mock")
 
-    elif provider in ("nvidia", "kimi"):
+    elif provider == "nvidia":
         key = _resolve_api_key(settings.nvidia_api_key) or _get_env_key("NVIDIA_API_KEY")
         return LiteLLMClient("nvidia-voter", "nvidia") if key else LiteLLMClient("mock", "mock")
         
