@@ -193,6 +193,28 @@ _async_session_factory = None
 _db_initialised = False
 
 
+def _normalize_async_db_url(database_url: str) -> str:
+    """Map a plain DB URL onto its async driver form.
+
+    Handles the schemes we actually encounter:
+    - sqlite://            -> sqlite+aiosqlite://
+    - postgresql://        -> postgresql+asyncpg://
+    - postgres://          -> postgresql+asyncpg://  (Render/Heroku emit the bare
+      `postgres://` scheme from connectionString, which SQLAlchemy 1.4+ no longer
+      recognizes; without this the app would fail to start on managed Postgres.)
+    Anything already carrying a +driver, or an unknown scheme, is returned as-is.
+    """
+    if database_url.startswith("sqlite://") and "aiosqlite" not in database_url:
+        return database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    if database_url.startswith("postgresql+"):
+        return database_url
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return database_url
+
+
 async def init_db() -> None:
     """Create the database engine, tables, and session factory.
 
@@ -207,13 +229,7 @@ async def init_db() -> None:
     settings = get_settings()
     database_url = settings.database_url
 
-    # aiosqlite driver requires sqlite+aiosqlite:// prefix
-    if database_url.startswith("sqlite://") and "aiosqlite" not in database_url:
-        connect_url = database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
-    elif database_url.startswith("postgresql://"):
-        connect_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    else:
-        connect_url = database_url
+    connect_url = _normalize_async_db_url(database_url)
 
     _async_engine = create_async_engine(
         connect_url, 
