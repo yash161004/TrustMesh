@@ -205,32 +205,45 @@ async def run_single_session_with_retries(
     return {"status": "RATE_LIMIT_FAILED", "outcome": "FAILED", "msg_count": 0}
 
 
-async def preflight_quota_check(provider: str, max_wait_sec: int = 300) -> bool:
-    """Verify provider is not in rate-limit cooldown before starting a batch run."""
+async def preflight_quota_check(primary_provider: str = "groq", max_wait_sec: int = 300) -> bool:
+    """Verify all pipeline providers (negotiation turn provider + trust judge provider) are healthy."""
     from app.llm_client import get_llm_client
-    client = get_llm_client(provider)
-    logger.info(f"Performing pre-flight rate-limit health check for provider '{provider}'...")
     
-    start_time = time.time()
-    while time.time() - start_time < max_wait_sec:
-        try:
-            res = await client.generate(
-                messages=[{"role": "user", "content": "Respond with OK"}],
-                system_prompt="You are a health check assistant.",
-                temperature=0.1,
-            )
-            if res:
-                logger.info(f"Pre-flight health check PASSED for '{provider}'. Starting batch.")
-                return True
-        except Exception as e:
-            if "RateLimit" in str(e) or "429" in str(e) or "cooldown" in str(e).lower():
-                logger.warning(f"Pre-flight check: '{provider}' rate-limited/cooldown active. Waiting 30s before retry...")
-                await asyncio.sleep(30.0)
-            else:
-                logger.warning(f"Pre-flight check non-fatal error: {e}. Proceeding with batch.")
-                return True
-    logger.error(f"Pre-flight check FAILED: '{provider}' remained rate-limited after {max_wait_sec}s.")
-    return False
+    # Check both negotiation turn provider and trust engine judge provider (gemini)
+    providers_to_check = list(dict.fromkeys([primary_provider, "gemini"]))
+    logger.info(f"Performing pre-flight rate-limit health check for providers: {providers_to_check}...")
+    
+    for provider in providers_to_check:
+        client = get_llm_client(provider)
+        start_time = time.time()
+        provider_healthy = False
+        
+        while time.time() - start_time < max_wait_sec:
+            try:
+                res = await client.generate(
+                    messages=[{"role": "user", "content": "Respond with OK"}],
+                    system_prompt="You are a health check assistant.",
+                    temperature=0.1,
+                )
+                if res:
+                    logger.info(f"Pre-flight health check PASSED for provider '{provider}'.")
+                    provider_healthy = True
+                    break
+            except Exception as e:
+                err_str = str(e)
+                if "RateLimit" in err_str or "429" in err_str or "cooldown" in err_str.lower():
+                    logger.warning(f"Pre-flight check: provider '{provider}' rate-limited/cooldown active. Waiting 30s before retry...")
+                    await asyncio.sleep(30.0)
+                else:
+                    logger.error(f"Pre-flight check FAILED for provider '{provider}': Unexpected error {e}")
+                    return False
+                    
+        if not provider_healthy:
+            logger.error(f"Pre-flight check FAILED: provider '{provider}' remained rate-limited after {max_wait_sec}s.")
+            return False
+
+    logger.info("All pipeline providers healthy. Proceeding with batch.")
+    return True
 
 
 async def run_batch(num_sessions: int = 5, provider: str = "groq", tag: str = "real_llm_v6"):
