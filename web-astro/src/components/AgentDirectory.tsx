@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@clerk/astro/react';
-import { listAgentCards, type AgentCardResponse } from '../lib/api';
+import { listAgentCards, getAgentReputation, type AgentCardResponse, type AgentReputationResponse } from '../lib/api';
 
 export default function AgentDirectory() {
   const { getToken, isLoaded } = useAuth();
   const [agents, setAgents] = useState<AgentCardResponse[]>([]);
+  const [reputations, setReputations] = useState<Record<string, AgentReputationResponse>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,6 +16,19 @@ export default function AgentDirectory() {
         if (!token) return;
         const data = await listAgentCards(token);
         setAgents(data);
+
+        const repMap: Record<string, AgentReputationResponse> = {};
+        await Promise.all(
+          data.map(async (agent) => {
+            try {
+              const rep = await getAgentReputation(token, agent.agent_id);
+              repMap[agent.agent_id] = rep;
+            } catch {
+              // Ignore reputation fetch failure per individual agent card
+            }
+          })
+        );
+        setReputations(repMap);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load agent cards');
       } finally {
@@ -94,6 +108,24 @@ export default function AgentDirectory() {
                 {agent.agent_id}
               </p>
             </div>
+
+            {reputations[agent.agent_id] && (
+              <div class="pt-3 border-t border-border/30">
+                <p class="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Cross-Session Reputation</p>
+                <div class="flex items-center justify-between text-xs bg-surface-900 p-2 rounded border border-border/50">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-bold text-text-primary">
+                      {(reputations[agent.agent_id].trust_score * 100).toFixed(0)}%
+                    </span>
+                    <span class="text-[10px] text-text-muted">Trust</span>
+                  </div>
+                  <div class="flex gap-3 text-[10px] text-text-muted">
+                    <span>{reputations[agent.agent_id].total_sessions} session{reputations[agent.agent_id].total_sessions === 1 ? '' : 's'}</span>
+                    <span>{reputations[agent.agent_id].violations_count} violation{reputations[agent.agent_id].violations_count === 1 ? '' : 's'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ))}

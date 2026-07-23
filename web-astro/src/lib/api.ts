@@ -37,6 +37,14 @@ export interface AgentCardResponse {
   signature: string;
 }
 
+export interface AgentReputationResponse {
+  agent_id: string;
+  trust_score: number;
+  total_sessions: number;
+  violations_count: number;
+  last_updated: string;
+}
+
 export interface LedgerEntry {
   id: number;
   session_id: string;
@@ -209,6 +217,13 @@ export async function getSessionsPerOrg(token: string): Promise<SessionsPerOrg[]
 
 export async function listAgentCards(token: string): Promise<AgentCardResponse[]> {
   return authFetch<AgentCardResponse[]>('/api/v1/agent-cards', token);
+}
+
+export async function getAgentReputation(
+  token: string,
+  agentId: string,
+): Promise<AgentReputationResponse> {
+  return authFetch<AgentReputationResponse>(`/api/v1/agents/${agentId}/reputation`, token);
 }
 
 export async function getAverageTrust(token: string): Promise<AverageTrust> {
