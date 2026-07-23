@@ -110,12 +110,19 @@ class TrustEngine:
                     ))
 
         # Manipulation checks (skipped when skip_llm=True)
+        manipulation_confidence_scores: list[float] = []
         if not skip_llm:
             for msg in messages:
                 if scenario:
                     history_so_far = [m for m in messages if m.turn_number < msg.turn_number]
                     result = await self.manipulation.evaluate(msg, history_so_far, scenario)
-                    
+
+                    # Track confidence for every check that actually ran (flagged, cleared,
+                    # or degraded-clear alike) so overall_confidence reflects the whole
+                    # session, not just the subset that happened to get flagged.
+                    if not result.get("degraded") and result.get("confidence_score") is not None:
+                        manipulation_confidence_scores.append(float(result["confidence_score"]))
+
                     if result.get("degraded"):
                         all_events.append(SessionEvent(
                             event_type=SessionEventType.EVALUATION_DEGRADED,
@@ -123,6 +130,25 @@ class TrustEngine:
                             agent_id=msg.sender,
                             description="Manipulation check unavailable (rate limited)."
                         ))
+                    elif not result.get("flagged"):
+                        # CLEARED, but don't throw away a weak "all clear." Self-consistency
+                        # already computed a real confidence_score/disagreement_rate for this
+                        # verdict — if the samples didn't agree strongly, a compliance
+                        # reviewer needs to see that even though nothing was flagged.
+                        confidence_score = result.get("confidence_score", 1.0)
+                        disagreement_rate = result.get("disagreement_rate", 0.0)
+                        if confidence_score < 0.6 or disagreement_rate > 0:
+                            all_events.append(SessionEvent(
+                                event_type=SessionEventType.LOW_CONFIDENCE_CLEAR,
+                                message_turn=msg.turn_number,
+                                agent_id=msg.sender,
+                                description=(
+                                    f"Manipulation check cleared this message, but detector "
+                                    f"samples only reached {confidence_score:.0%} confidence "
+                                    f"(disagreement rate {disagreement_rate:.0%}). Recommend "
+                                    f"manual review despite the clear verdict."
+                                )
+                            ))
                     elif result.get("flagged"):
                         impact = abs(result["trust_impact"])
                         if impact >= 40:
@@ -201,6 +227,17 @@ class TrustEngine:
         buyer_trend = self._compute_trend(buyer_violations, messages, buyer_agent_id)
         seller_trend = self._compute_trend(seller_violations, messages, seller_agent_id)
 
+        # Session-level confidence aggregate — covers every manipulation check that ran,
+        # flagged or not, so a low-confidence "all clear" isn't invisible at the report level.
+        overall_confidence = (
+            sum(manipulation_confidence_scores) / len(manipulation_confidence_scores)
+            if manipulation_confidence_scores else None
+        )
+        low_confidence_review_count = (
+            sum(1 for e in all_events if e.event_type == SessionEventType.LOW_CONFIDENCE_CLEAR)
+            + sum(1 for v in all_violations if v.confidence_band == "low_confidence_review_recommended")
+        )
+
         # Summary
         total_violations = len(all_violations)
         if total_violations == 0:
@@ -229,6 +266,8 @@ class TrustEngine:
             violations=all_violations,
             events=all_events,
             summary=summary,
+            overall_confidence=overall_confidence,
+            low_confidence_review_count=low_confidence_review_count,
         )
 
     # ------------------------------------------------------------------

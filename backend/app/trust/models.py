@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 class SessionEventType(str, Enum):
     """Operational events that are not trust violations."""
     EVALUATION_DEGRADED = "EVALUATION_DEGRADED"
+    LOW_CONFIDENCE_CLEAR = "LOW_CONFIDENCE_CLEAR"
 
 class SessionEvent(BaseModel):
     """A non-violation operational event during a session (e.g. rate limits)."""
@@ -78,3 +79,5 @@ class TrustReport(BaseModel):
     violations: list[Violation] = Field(default_factory=list)
     events: list[SessionEvent] = Field(default_factory=list)
     summary: str = ""
+    overall_confidence: Optional[float] = None
+    low_confidence_review_count: int = 0

@@ -1,10 +1,19 @@
 """
-TrustMesh — Backfill model_provider for existing database session records.
+TrustMesh — Backfill model_provider for existing database session records. (FIXED)
 
-Fixes mislabeled rows in PostgreSQL/SQLite:
-- NVIDIA-run sessions (c7b5018c, 716dc391, 4ade32c5, ece72c2c) -> model_provider = 'nvidia'
-- All other real LLM sessions (groq runs prior to task-852) -> model_provider = 'groq'
-- Mock/synthetic runs -> model_provider = 'mock'
+This replaces backend/scripts/backfill_model_provider.py (commit ebb8768).
+
+Bug in the original: the "mock" clause only matched
+  data_source IN ('mock', 'synthetic', NULL)
+but the legacy DB migration default was `data_source VARCHAR(36) DEFAULT 'real'`
+(see backend/app/db.py line 235). That means every row carrying the literal
+string data_source='real' — the 694-row legacy bucket already confirmed in
+commit 0625dd2 to be mislabeled synthetic seed data — was silently skipped by
+the original script and left with whatever model_provider it had before.
+
+This version handles that bucket explicitly, tags it unambiguously, and prints
+a per-data_source breakdown so the output can be diffed against what gets
+reported back, instead of trusting a single collapsed summary number.
 """
 import asyncio
 import os
@@ -27,19 +36,20 @@ NVIDIA_SESSION_IDS = {
     "ece72c2c-74ae-4bbb-a73c-33857d44cc5f",
 }
 
+
 async def backfill():
     await init_db()
     factory = get_session_factory()
     async with factory() as db:
-        # 1. Update explicit NVIDIA session IDs
+        # 1. Explicit NVIDIA session IDs
         for sid in NVIDIA_SESSION_IDS:
             await db.execute(
                 update(SessionRecord)
                 .where(SessionRecord.id == sid)
                 .values(model_provider="nvidia")
             )
-        
-        # 2. Update remaining real LLM sessions (data_source starting with real_llm) to groq
+
+        # 2. Real LLM sessions (real_llm_v4/v5/v6) not already tagged NVIDIA -> groq
         await db.execute(
             update(SessionRecord)
             .where(SessionRecord.data_source.like("real_llm%"))
@@ -47,26 +57,50 @@ async def backfill():
             .values(model_provider="groq")
         )
 
-        # 3. Update synthetic/mock sessions
+        # 3. Explicit synthetic/mock rows -> mock
         await db.execute(
             update(SessionRecord)
             .where(
-                (SessionRecord.data_source == "mock") |
-                (SessionRecord.data_source == "synthetic") |
-                (SessionRecord.data_source.is_(None))
+                (SessionRecord.data_source == "mock")
+                | (SessionRecord.data_source == "synthetic")
+                | (SessionRecord.data_source.is_(None))
             )
             .values(model_provider="mock")
         )
 
-        await db.commit()
-        print("Successfully backfilled model_provider across all session records.")
+        # 4. THE FIX: legacy rows with data_source == 'real' (the old DDL default).
+        # These are the previously-mislabeled-synthetic bucket from 0625dd2.
+        # Tag distinctly as 'legacy_unverified' — NOT 'gemini', NOT 'mock' —
+        # so nothing downstream mistakes this for either real gemini-negotiated
+        # data or genuinely mock data. This bucket stays excluded from training
+        # regardless of this label; the point is making the label honest.
+        await db.execute(
+            update(SessionRecord)
+            .where(SessionRecord.data_source == "real")
+            .values(model_provider="legacy_unverified")
+        )
 
-        # Print summary report
-        res = await db.execute(text("SELECT model_provider, COUNT(*) FROM negotiation_sessions GROUP BY model_provider;"))
+        await db.commit()
+        print("Backfill complete.\n")
+
+        # Per-data_source breakdown, not just a collapsed model_provider count —
+        # this is the number that actually needs to be checked against reports.
+        res = await db.execute(
+            text(
+                """
+                SELECT data_source, model_provider, COUNT(*)
+                FROM negotiation_sessions
+                GROUP BY data_source, model_provider
+                ORDER BY data_source, model_provider;
+                """
+            )
+        )
         rows = res.fetchall()
-        print("\nUpdated model_provider breakdown:")
-        for provider, count in rows:
-            print(f"  {provider}: {count} sessions")
+        print("data_source | model_provider | count")
+        print("-" * 45)
+        for data_source, provider, count in rows:
+            print(f"{data_source!s:15} {provider!s:16} {count}")
+
 
 if __name__ == "__main__":
     asyncio.run(backfill())
