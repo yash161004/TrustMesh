@@ -264,25 +264,67 @@ async def preflight_quota_check(primary_provider: str = "groq", max_wait_sec: in
     return True
 
 
+LOCK_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".run_real_negotiations.lock"))
+
+
+def acquire_process_lock() -> bool:
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE, "r") as f:
+                pid = int(f.read().strip())
+            # Check if PID is running
+            import psutil
+            if psutil.pid_exists(pid):
+                logger.error(f"Concurrency Lock Error: Process {pid} is currently running. Only one instance allowed.")
+                return False
+        except Exception:
+            pass
+    try:
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to acquire lockfile: {e}")
+        return False
+
+
+def release_process_lock():
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
+
+
 async def run_batch(num_sessions: int = 5, provider: str = "groq", tag: str = "real_llm_v6"):
-    await init_db()
-    healthy = await preflight_quota_check(provider)
-    if not healthy:
-        logger.error("Aborting batch execution due to persistent provider rate-limit cooldown.")
+    if not acquire_process_lock():
         return []
 
-    logger.info(f"Starting THROTTLED real LLM batch of {num_sessions} sessions (provider={provider}, tag={tag})...")
-    
-    start_time = time.time()
-    results = []
-    
-    for i in range(num_sessions):
-        res = await run_single_session_with_retries(i, num_sessions, provider, tag=tag)
-        results.append(res)
+    try:
+        await init_db()
+        healthy = await preflight_quota_check(provider)
+        if not healthy:
+            logger.error("Aborting batch execution due to persistent provider rate-limit cooldown.")
+            return []
 
-    elapsed = time.time() - start_time
-    logger.info(f"Batch completed in {elapsed:.2f}s.")
-    return results
+        logger.info(f"Starting THROTTLED real LLM batch of {num_sessions} sessions (provider={provider}, tag={tag})...")
+        
+        start_time = time.time()
+        results = []
+        
+        for i in range(num_sessions):
+            sess_start = time.time()
+            res = await run_single_session_with_retries(i, num_sessions, provider, tag=tag)
+            sess_duration = time.time() - sess_start
+            res["duration_sec"] = round(sess_duration, 1)
+            logger.info(f"Session {i+1}/{num_sessions} finished in {sess_duration:.1f}s (status={res.get('status')}, outcome={res.get('outcome')})")
+            results.append(res)
+
+        elapsed = time.time() - start_time
+        logger.info(f"Batch completed in {elapsed:.2f}s.")
+        return results
+    finally:
+        release_process_lock()
 
 
 if __name__ == "__main__":

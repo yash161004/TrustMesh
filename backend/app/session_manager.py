@@ -365,57 +365,75 @@ class SessionManager:
                     "role": role,
                 }
 
-                try:
-                    temp = turn_context.get("temperature", 0.7)
-                    response = await current_agent.generate_response(turn_context, temperature=temp)
-                    session.messages.append(response)
-                    messages.append(response)
-                    turn_count += 1
-
-                    # Persist each message immediately
-                    await self._persist_message(session_id, response)
-
-                    # Throttle turn generation to stay under 15 RPM (1 call every 6s = 10 RPM max)
-                    await asyncio.sleep(6.0)
-
-                    logger.info(
-                        "Session %s Turn %d: %s -> %s @ %s%.2f/unit | %s",
-                        session_id,
-                        turn_count,
-                        role,
-                        response.message_type.value,
-                        scenario.currency,
-                        response.price,
-                        response.delivery_terms,
-                    )
-
-                    if response.message_type in (
-                        MessageType.ACCEPT,
-                        MessageType.REJECT,
-                    ):
-                        session.status = NegotiationSessionStatus.COMPLETED
-                        outcome = "DEAL" if response.message_type == MessageType.ACCEPT else "NO_DEAL"
-                        final_price = response.price if response.message_type == MessageType.ACCEPT else None
-                        await update_session_status(
-                            session_id=session_id,
-                            status=session.status.value,
-                            final_price=final_price,
-                            outcome=outcome,
-                        )
-                        logger.info(
-                            "Session %s completed: %s at %s%.2f/unit",
-                            session_id, outcome, scenario.currency, final_price or 0,
-                        )
+                turn_response = None
+                for turn_attempt in range(3):
+                    try:
+                        temp = turn_context.get("temperature", 0.7)
+                        turn_response = await current_agent.generate_response(turn_context, temperature=temp)
                         break
+                    except Exception as turn_err:
+                        err_str = str(turn_err)
+                        if ("RateLimit" in err_str or "429" in err_str or "cooldown" in err_str.lower()) and turn_attempt < 2:
+                            wait_sec = (turn_attempt + 1) * 20.0
+                            logger.warning(
+                                "Session %s turn %d rate-limited (attempt %d/3). Backing off %.1fs...",
+                                session_id, len(session.messages) + 1, turn_attempt + 1, wait_sec
+                            )
+                            await asyncio.sleep(wait_sec)
+                        else:
+                            logger.error("Session %s turn error: %s", session_id, turn_err)
+                            session.status = NegotiationSessionStatus.FAILED
+                            await update_session_status(
+                                session_id=session_id,
+                                status=session.status.value,
+                                outcome="FAILED",
+                            )
+                            turn_response = None
+                            break
 
-                except Exception as e:
-                    logger.error("Session %s turn error: %s", session_id, e)
-                    session.status = NegotiationSessionStatus.FAILED
+                if not turn_response:
+                    break
+
+                response = turn_response
+                session.messages.append(response)
+                messages.append(response)
+                turn_count += 1
+
+                # Persist each message immediately
+                await self._persist_message(session_id, response)
+
+                # Throttle turn generation to stay under 15 RPM (1 call every 6s = 10 RPM max)
+                await asyncio.sleep(6.0)
+
+                logger.info(
+                    "Session %s Turn %d: %s -> %s @ %s%.2f/unit | %s",
+                    session_id,
+                    turn_count,
+                    role,
+                    response.message_type.value,
+                    scenario.currency,
+                    response.price,
+                    response.delivery_terms,
+                )
+
+                if response.message_type in (
+                    MessageType.ACCEPT,
+                    MessageType.REJECT,
+                ):
+                    session.status = NegotiationSessionStatus.COMPLETED
+                    outcome = "DEAL" if response.message_type == MessageType.ACCEPT else "NO_DEAL"
+                    final_price = response.price if response.message_type == MessageType.ACCEPT else None
                     await update_session_status(
                         session_id=session_id,
                         status=session.status.value,
-                        outcome="FAILED",
+                        final_price=final_price,
+                        outcome=outcome,
                     )
+                    logger.info(
+                        "Session %s completed: %s at %s%.2f/unit",
+                        session_id, outcome, scenario.currency, final_price or 0,
+                    )
+                    break
                     break
 
             if session.status == NegotiationSessionStatus.ACTIVE:
