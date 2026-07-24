@@ -79,6 +79,26 @@ for turn in handler.turns:
 Install the extra: `pip install "trustmesh-sdk[langchain]"`. Toggle capture with
 `TrustMeshCallbackHandler(watcher, capture_llm=..., capture_agent=...)`.
 
+### Any framework (OpenAI message format)
+
+`trustmesh.adapters.generic` needs no framework install — it works with anything
+that speaks the OpenAI chat-message shape (`{"role", "content"}`), which covers
+raw OpenAI/Anthropic calls, AutoGen, CrewAI, and OpenAI Swarm:
+
+```python
+from trustmesh.adapters.generic import audit_messages, audit_chat_completion, audited_step
+
+# audit an existing message list (optionally only the assistant's turns)
+audit_messages(watcher, messages, roles={"assistant"})
+
+# audit an OpenAI-style ChatCompletion (dict or SDK object)
+audit_chat_completion(watcher, response)
+
+# or wrap any step function transparently
+@audited_step(watcher, extract=lambda r: {"role": "assistant", "text": r})
+def agent_reply(prompt): ...
+```
+
 ## What it is — and is not (honest scope)
 
 - **Local-first.** There is no hosted service and therefore no `api_key`. This
