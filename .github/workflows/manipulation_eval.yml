@@ -2,9 +2,8 @@ name: Manipulation Detector Eval
 
 on:
   pull_request:
-    paths:
-      - 'backend/app/trust/detectors/**'
-      - 'backend/app/trust/models.py'
+    branches:
+      - master
 
 concurrency:
   group: manipulation-eval-${{ github.ref }}
@@ -28,15 +27,28 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Check GEMINI_API_KEY
+      id: check-key
+      env:
+        KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        if [ -z "$KEY" ]; then
+          echo "GEMINI_API_KEY is not set — skipping adversarial holdout. Set this secret in repo settings to enable."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Run Manipulation Holdout Benchmark
+      if: steps.check-key.outputs.skip != 'true'
       working-directory: ./backend
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
         python scripts/run_manipulation_holdout.py \
-          --fail-below-precision 0.90 \
-          --fail-below-recall 0.80 \
-          --prompt-version "post-few-shot-expansion"
+          --fail-below-precision 0.95 \
+          --fail-below-recall 0.95 \
+          --prompt-version "post-few-shot-expansion-swap"
 
     - name: Upload Evaluation Results
       if: always()
