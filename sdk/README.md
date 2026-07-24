@@ -9,11 +9,13 @@ It is the same idea as the TrustMesh backend, packaged as reusable middleware:
 Ed25519-sign each message, append it to an append-only SHA-256 hash chain,
 verify the chain later.
 
-## Install / use (from a repo checkout)
+## Install / use
+
+The SDK is standalone — its only runtime dependency is `cryptography`. It does
+not need the TrustMesh backend on the path to sign, chain, or verify.
 
 ```bash
-# The SDK currently reuses the TrustMesh backend's crypto primitives, so it is
-# used from within this repository. `backend/` is added to sys.path automatically.
+pip install ./sdk          # or: pip install "trustmesh-sdk[langchain]"
 python sdk/examples/minimal_agent_loop.py
 ```
 
@@ -83,18 +85,16 @@ Install the extra: `pip install "trustmesh-sdk[langchain]"`. Toggle capture with
   is designed to *integrate with* any agent framework (CrewAI, AutoGen,
   LangChain, OpenAI Swarm, or a plain function), not to be a client for a remote
   API that does not exist yet.
-- **Same crypto as the backend, not a fork.** The signing and hash-chain
-  primitives are imported directly from the TrustMesh backend
-  (`trustmesh/_crypto.py`). The test suite asserts that SDK-produced records
-  verify under the backend's *own* `verify_chain` / `verify_signature`, so there
-  is no risk of the two drifting apart.
+- **Same crypto as the backend, guaranteed — not a fork that drifts.** The
+  signing and hash-chain primitives are vendored (`trustmesh/_primitives.py`) so
+  the SDK is standalone, but `tests/test_backend_parity.py` imports the backend's
+  *own* reference implementation and asserts byte-for-byte identical output
+  (canonical JSON, entry hashes) plus cross-verification of signatures. If the
+  backend's crypto ever changes, that test fails — so the two provably cannot
+  diverge silently.
 - **Self-contained identity.** The watcher holds its own in-memory Ed25519 key
   and never touches the backend's on-disk key store or database. Pass an
   existing `private_key` to reuse a stable identity across runs.
-- **Not yet a standalone distribution.** Because it imports the backend
-  primitives, it is used from a repo checkout today. Packaging it fully
-  standalone — vendoring the primitives, or extracting a shared
-  `trustmesh-core` both sides depend on — is deliberate follow-on work.
 
 ## Run the tests
 
