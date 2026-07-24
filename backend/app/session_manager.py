@@ -37,6 +37,7 @@ from .db import (
     update_agent_reputation_v2,
 )
 from .trust.engine import trust_engine
+from .trust.models import ViolationStatus
 from .crypto.signing import get_public_key_b64, sign_message, sign_message_for_agent
 from .identity.agent_card import get_or_create_agent_card, card_file_path, verify_agent_card
 from .crypto.ledger import _GENESIS_HASH, build_entry, verify_chain
@@ -661,10 +662,28 @@ class SessionManager:
 
         # Apply reputation update ONLY on first calculation if requested
         if update_reputation and not recompute:
+            # Collect each agent's non-disputed violation severities so the cross-session
+            # reputation penalty is weighted by how bad the violations were, not just how
+            # many. DISPUTED violations are excluded to match the in-session scoring rule.
+            def _severities_for(agent_id: str) -> list[str]:
+                return [
+                    v.severity.value if hasattr(v.severity, "value") else str(v.severity)
+                    for v in report.violations
+                    if v.agent_id == agent_id and v.status != ViolationStatus.DISPUTED
+                ]
+
             if session.buyer_agent_id:
-                await update_agent_reputation_v2(session.buyer_agent_id, report.buyer_score.violation_count)
+                await update_agent_reputation_v2(
+                    session.buyer_agent_id,
+                    report.buyer_score.violation_count,
+                    session_severities=_severities_for(session.buyer_agent_id),
+                )
             if session.seller_agent_id:
-                await update_agent_reputation_v2(session.seller_agent_id, report.seller_score.violation_count)
+                await update_agent_reputation_v2(
+                    session.seller_agent_id,
+                    report.seller_score.violation_count,
+                    session_severities=_severities_for(session.seller_agent_id),
+                )
 
 
 

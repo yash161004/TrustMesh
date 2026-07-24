@@ -798,8 +798,69 @@ async def get_agent_reputation(agent_id: str) -> dict:
             "last_updated": record.last_updated,
         }
 
-async def update_agent_reputation_v2(agent_id: str, session_violations: int) -> None:
-    """Update cross-session agent reputation using flat penalty or slow recovery."""
+# Cross-session reputation tuning constants (trust_score lives on a 0.0–1.0 scale).
+_REP_NEUTRAL_SCORE = 0.75          # baseline a fresh agent starts at, and the value stale
+                                   # scores drift back toward as violations age out
+_REP_CLEAN_RECOVERY = 0.02         # per clean session, slow recovery
+_REP_DECAY_HALF_LIFE_DAYS = 30.0   # a violation's drag on the score halves every 30 idle days
+_REP_MAX_SESSION_PENALTY = 0.30    # one session can never subtract more than this, so a single
+                                   # bad negotiation can't zero out an otherwise-trusted agent
+# Per-violation penalty by severity, on the 0.0–1.0 reputation scale. Mirrors the
+# ratios in trust/engine.py::_PENALTY_MAP (2/5/12/25 out of 100) so the cross-session
+# rule and the in-session score agree on how much worse CRITICAL is than LOW.
+_REP_SEVERITY_PENALTY = {
+    "LOW": 0.02,
+    "MEDIUM": 0.05,
+    "HIGH": 0.12,
+    "CRITICAL": 0.25,
+}
+
+
+def _severity_weighted_penalty(severities: list[str]) -> float:
+    """Sum per-severity penalties for one session's violations, capped.
+
+    Falls back to treating an unknown/blank severity as MEDIUM so a mislabelled
+    violation still costs something rather than silently scoring zero.
+    """
+    total = sum(
+        _REP_SEVERITY_PENALTY.get((s or "").upper(), _REP_SEVERITY_PENALTY["MEDIUM"])
+        for s in severities
+    )
+    return min(_REP_MAX_SESSION_PENALTY, total)
+
+
+def _decay_toward_neutral(score: float, days_elapsed: float) -> float:
+    """Pull a score toward the neutral baseline as time passes since the last update.
+
+    decay = 0.5 ** (days / half_life): 1.0 at 0 days (no change), approaching 0 as the
+    agent sits idle. Applied symmetrically, so an old penalty fades back up toward
+    neutral and an old undeserved boost fades back down — "reputation is only as fresh
+    as its most recent evidence." At days_elapsed == 0 this is an exact no-op.
+    """
+    if days_elapsed <= 0:
+        return score
+    decay = 0.5 ** (days_elapsed / _REP_DECAY_HALF_LIFE_DAYS)
+    return _REP_NEUTRAL_SCORE + (score - _REP_NEUTRAL_SCORE) * decay
+
+
+async def update_agent_reputation_v2(
+    agent_id: str,
+    session_violations: int,
+    session_severities: Optional[list[str]] = None,
+) -> None:
+    """Update cross-session agent reputation with severity weighting and time decay.
+
+    Args:
+        agent_id: the agent whose reputation to update.
+        session_violations: count of (non-disputed) violations this session — still
+            used for the running ``violations_count`` total and as the fallback signal
+            when ``session_severities`` is not supplied.
+        session_severities: severity strings ("LOW"/"MEDIUM"/"HIGH"/"CRITICAL") for
+            this session's violations. When provided, the penalty is severity-weighted
+            instead of a flat hit, so a CRITICAL bait-and-switch costs far more than a
+            LOW rounding quibble. When omitted, the original flat -0.1 penalty is used,
+            preserving backward compatibility for any caller that only has the count.
+    """
     if not agent_id:
         return
     factory = get_session_factory()
@@ -809,31 +870,45 @@ async def update_agent_reputation_v2(agent_id: str, session_violations: int) -> 
         )
         record = result.scalar_one_or_none()
         now = datetime.now(timezone.utc)
-        
+
         if record is None:
             record = AgentReputationRecord(
                 agent_id=agent_id,
-                trust_score=0.75,
+                trust_score=_REP_NEUTRAL_SCORE,
                 total_sessions=0,
                 violations_count=0,
                 last_updated=now,
             )
             db.add(record)
-            
+
+        # 1. Age out old evidence first: drift the stored score toward neutral by however
+        #    long it's been since we last saw this agent. A record created just above has
+        #    last_updated == now, so this is a no-op on first sight.
+        last_updated = record.last_updated or now
+        if last_updated.tzinfo is None:
+            last_updated = last_updated.replace(tzinfo=timezone.utc)
+        days_elapsed = max(0.0, (now - last_updated).total_seconds() / 86400.0)
+        record.trust_score = _decay_toward_neutral(record.trust_score, days_elapsed)
+
+        # 2. Apply this session's outcome on top of the decayed score.
         if session_violations > 0:
-            # Flat penalty per session with violations
-            record.trust_score = max(0.0, record.trust_score - 0.1)
+            if session_severities:
+                penalty = _severity_weighted_penalty(session_severities)
+            else:
+                penalty = 0.1  # backward-compatible flat penalty when no severities given
+            record.trust_score = max(0.0, record.trust_score - penalty)
         else:
-            # Clean session -> slow recovery
-            record.trust_score = min(1.0, record.trust_score + 0.02)
-            
+            record.trust_score = min(1.0, record.trust_score + _REP_CLEAN_RECOVERY)
+
         record.total_sessions += 1
         record.violations_count += session_violations
         record.last_updated = now
         await db.commit()
         logger.info(
-            "Updated v2 reputation for %s to %.2f (total_sessions: %d, violations_count: %d)",
-            agent_id, record.trust_score, record.total_sessions, record.violations_count
+            "Updated v2 reputation for %s to %.2f (total_sessions: %d, violations_count: %d, "
+            "decayed_over %.1fd)",
+            agent_id, record.trust_score, record.total_sessions, record.violations_count,
+            days_elapsed,
         )
 
 
