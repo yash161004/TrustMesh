@@ -17,6 +17,9 @@ def dummy_user(request: Request):
     return user
 
 def test_session_endpoints(test_client):
+    # NOTE: this override must be torn down. Leaking it makes every later test
+    # file (e.g. test_auth_smoke) see an authenticated user and get 200 where a
+    # 401 is expected — a real CI-only failure, since this file sorts before them.
     app.dependency_overrides[get_current_user] = dummy_user
     try:
         # Create

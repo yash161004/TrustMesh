@@ -28,7 +28,10 @@ def test_tenant_visibility():
     app.dependency_overrides[get_current_user] = lambda: user_a
     r_create = client.post(
         "/api/v1/sessions",
-        json={"buyer_agent_id": "b1", "seller_agent_id": "s1"}
+        # provider=mock: this test covers org visibility, not live inference.
+        # Without it the request defaults to gemini and fails in CI with
+        # "Cannot create real session: GEMINI_API_KEY is missing".
+        json={"buyer_agent_id": "b1", "seller_agent_id": "s1", "provider": "mock"}
     )
     assert r_create.status_code == 200, f"Create failed: {r_create.text}"
     session_id = r_create.json()["session_id"]
