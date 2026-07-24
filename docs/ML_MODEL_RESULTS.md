@@ -4,7 +4,10 @@
 **Git SHA:** `def988e`  
 **Training rows:** 57 (22 DEAL / 35 NO_DEAL, 0 FAILED sessions excluded - see script docstring)  
 **CV folds:** 5 (StratifiedKFold, adapted to smaller-class count)  
-**Status: DEFERRED - model artifact NOT committed. See deferral rationale below.**
+> [!IMPORTANT]
+> **Deployment Status: DEFERRED & NOT SHIPPED.**
+> The classical ML model artifact (`deal_outcome_model.joblib`) was deliberately **deleted and NOT committed** to git. Although the GradientBoostingClassifier achieved `F1=0.955` and `ROC-AUC=0.957`, 42 of the 57 training rows originate from `seed_demo_data.py --seed-n 42` which uses deterministic synthetic label assignments (`DEAL` for the first 21, `NO_DEAL` for the remaining 21). This inflates CV metrics on synthetic data. Per the project's strict honesty rules, this model is deliberately withheld from production until sufficient real LLM-negotiated sessions (`data_source='real_llm_v6'` or later) are collected.
+
 
 ## Cross-validated metrics by model
 
