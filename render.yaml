@@ -9,6 +9,7 @@ services:
     name: trustmesh-backend
     env: docker
     rootDir: backend
+    preDeployCommand: alembic upgrade head
     envVars:
       - key: DATABASE_URL
         fromDatabase:
