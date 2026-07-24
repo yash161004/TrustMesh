@@ -96,7 +96,7 @@ task = Task(..., callback=handler.on_task_finish)
 ok, broken_at = handler.verify()
 ```
 
-Install the extra: `pip install "trustmesh-sdk[crewai]"`.
+Install the extra: `pip install "trustmesh-sdk[crewai]"`. See `sdk/examples/crewai_adapter_demo.py` for a runnable demonstration.
 
 ### AutoGen
 
@@ -114,7 +114,7 @@ agent.register_hook("process_message_before_send", handler.on_message)
 ok, broken_at = handler.verify()
 ```
 
-Install the extra: `pip install "trustmesh-sdk[autogen]"`.
+Install the extra: `pip install "trustmesh-sdk[autogen]"`. See `sdk/examples/autogen_adapter_demo.py` for a runnable demonstration.
 
 ### Any framework (OpenAI message format)
 
