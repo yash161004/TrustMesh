@@ -62,6 +62,22 @@ def _isolate_filesystem_state(tmp_path):
     sig_mod._KEYS_DIR = old_keys_dir
     sig_mod._keypairs = old_keypairs
 
+@pytest.fixture(autouse=True)
+def _clear_dependency_overrides():
+    """Reset FastAPI dependency overrides after every test.
+
+    Several tests install ``app.dependency_overrides[get_current_user]`` (and
+    ``get_current_user_ws``) to impersonate a tenant.  If any one of them forgets
+    to clear it (e.g. ``test_fleet_anomaly`` sets an override in each test with no
+    teardown), the override leaks into later tests — an unauthenticated request
+    then resolves to a real user and returns 200 where the test expects 401.
+    Clearing on teardown makes the suite order-independent regardless of any
+    individual test's hygiene.
+    """
+    from app.main import app
+    yield
+    app.dependency_overrides.clear()
+
 @pytest.fixture
 def test_client():
     from fastapi.testclient import TestClient
