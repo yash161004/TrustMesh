@@ -4,11 +4,10 @@ TrustMesh — Deal Outcome Prediction: inference.
 Loads the model trained by scripts/train_deal_outcome_model.py and scores a
 session's *current* state (used mid-negotiation, so no outcome/label yet).
 
-Not wired into any route yet — this is the integration point for a future
-`GET /sessions/{id}/prediction` endpoint (Tier 1 #1's natural next step,
-listed but not committed to in the roadmap docs). Kept separate from the
-training script on purpose: routes should import this thin module, not the
-training script's DB/sklearn-heavy import surface.
+Wired into `GET /sessions/{id}/prediction` (see routes/sessions.py), which
+degrades gracefully via model_available() when no artifact has been trained
+yet. Kept separate from the training script on purpose: routes import this
+thin module, not the training script's DB/sklearn-heavy import surface.
 """
 from __future__ import annotations
 
