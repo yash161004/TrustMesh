@@ -18,6 +18,7 @@ import random
 import sys
 import os
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 # Ensure we can import from the app package
@@ -564,6 +565,76 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
 # Main
 # ---------------------------------------------------------------------------
 
+RETRAIN_AUDIT_LOG = Path(__file__).resolve().parent.parent / "retrain_audit.log"
+RETRAIN_THRESHOLD = 30
+
+
+def _count_real_usable_sessions(engine) -> int:
+    """Return the number of non-seed real_llm_v6+ sessions that would be usable for training."""
+    from sqlalchemy import text as _text
+    with Session(engine) as db:
+        result = db.execute(_text(
+            "SELECT COUNT(*) FROM negotiation_sessions "
+            "WHERE status = 'COMPLETED' "
+            "AND outcome IN ('DEAL', 'NO_DEAL', 'MAX_TURNS') "
+            "AND data_source LIKE 'real_llm_v6%'"
+        ))
+        return result.scalar() or 0
+
+
+def _maybe_retrain():
+    """Check whether real-LLM session count has crossed the retrain threshold and fire if so."""
+    from sqlalchemy import create_engine as _ce
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        print("  ! RETRAIN CHECK SKIPPED: DATABASE_URL not set")
+        return
+    db_url = db_url.replace("+asyncpg", "").replace("+aiosqlite", "")
+    engine = _ce(db_url, echo=False)
+
+    count = _count_real_usable_sessions(engine)
+    ts = datetime.now(timezone.utc).isoformat()
+    log_line = f"[{ts}] real_llm_v6+ usable sessions: {count} (threshold: {RETRAIN_THRESHOLD})"
+
+    if count < RETRAIN_THRESHOLD:
+        print(f"  ! RETRAIN CHECK: {log_line} — not enough data yet, skipping.")
+        RETRAIN_AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+        RETRAIN_AUDIT_LOG.write_text(
+            (RETRAIN_AUDIT_LOG.read_text() if RETRAIN_AUDIT_LOG.exists() else "")
+            + log_line + " — below threshold, no retrain\n"
+        )
+        return
+
+    print(f"  >>> RETRAIN TRIGGERED: {log_line} — threshold crossed, launching train_deal_outcome_model.py")
+    RETRAIN_AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with open(str(RETRAIN_AUDIT_LOG), "a") as f:
+        f.write(log_line + " — THRESHOLD CROSSED, retrain invoked\n")
+
+    # Invoke the training script as a subprocess
+    import subprocess as _sp
+    train_script = str(Path(__file__).resolve().parent / "train_deal_outcome_model.py")
+    result = _sp.run(
+        [sys.executable, "-m", "scripts.train_deal_outcome_model"],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True, text=True,
+    )
+    exit_code = result.returncode
+    stdout = result.stdout[-2000:] if result.stdout else ""
+    stderr = result.stderr[-2000:] if result.stderr else ""
+    with open(str(RETRAIN_AUDIT_LOG), "a") as f:
+        f.write(f"[{ts}] Retrain exit_code={exit_code}\n")
+        if stdout:
+            f.write(f"[{ts}] stdout tail: {stdout}\n")
+        if stderr:
+            f.write(f"[{ts}] stderr tail: {stderr}\n")
+
+    if exit_code == 0:
+        print(f"  >>> Retrain finished successfully (exit_code=0). See docs/ML_MODEL_RESULTS.md")
+    else:
+        print(f"  >>> Retrain FAILED (exit_code={exit_code}). See retrain_audit.log")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Seed TrustMesh demo data")
@@ -571,7 +642,15 @@ def main():
                         help="Skip the 'already seeded' guard and append data")
     parser.add_argument("--seed-n", type=int, default=0,
                         help="Generate N programmatic extra sessions (data_source=real_llm_seed)")
+    parser.add_argument("--retrain-if-ready", action="store_true",
+                        help="Check real_llm_v6+ session count; if >= 30, auto-invoke train_deal_outcome_model.py")
     args = parser.parse_args()
+
+    if args.retrain_if_ready and args.seed_n == 0 and not args.force:
+        _maybe_retrain()
+        return
+    elif args.retrain_if_ready:
+        _maybe_retrain()
 
     # Use DATABASE_URL from env if set (Docker), otherwise default local path
     db_url = os.environ.get("DATABASE_URL")
