@@ -144,6 +144,15 @@ class SessionManager:
         self._lock = asyncio.Lock()
         self._initialised = False  # Whether we've loaded from DB
 
+    def reset(self) -> None:
+        """Reset in-memory state and caches (for test isolation)."""
+        self.sessions.clear()
+        self.agents.clear()
+        self.contexts.clear()
+        self.scenarios.clear()
+        self.session_locks.clear()
+        self._initialised = False
+
     async def _ensure_initialised(self) -> None:
         """Initialize database connection without pre-loading all sessions into memory."""
         if self._initialised:

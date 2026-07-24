@@ -14,7 +14,13 @@ async def init_test_db():
     app.db._async_engine = engine
     app.db._async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     app.db._db_initialised = True
+    
+    from app.session_manager import session_manager
+    session_manager.reset()
+    session_manager._initialised = True
+    
     yield
+    session_manager.reset()
     await engine.dispose()
 
 @pytest.fixture
