@@ -134,7 +134,7 @@ Refresh the dashboard. The green "Chain Verified" badge is back.
 **Script:**
 > "What you just saw — real-time trust scoring with specific, actionable violations, plus a cryptographically tamper-evident ledger — is the foundation of trustworthy A2A commerce. As AI agents start negotiating contracts, purchases, and settlements autonomously, they need a neutral referee that can verify every message, flag every violation, and prove that the transcript has not been altered. That's what TrustMesh provides."
 
-> "This is live code, running in Docker, with 37 passing tests — 10 of which specifically verify the tamper detection you just saw."
+> "This is live code, running with 53 passing backend tests and 31 passing SDK tests — 10 of which specifically verify the tamper detection you just saw."
 
 ---
 
