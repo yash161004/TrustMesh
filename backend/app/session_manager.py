@@ -417,8 +417,13 @@ class SessionManager:
                 # Persist each message immediately
                 await self._persist_message(session_id, response)
 
-                # Throttle turn generation to stay under 15 RPM (1 call every 6s = 10 RPM max)
-                await asyncio.sleep(6.0)
+                # Throttle turn generation to stay under real LLM provider rate
+                # limits (~10 RPM). The mock provider makes no external calls, so
+                # skip the throttle there — otherwise every mock/test/CI run pays
+                # 6s per turn for no reason.
+                is_mock = getattr(getattr(current_agent, "llm_client", None), "model_name", None) == "mock"
+                if not is_mock:
+                    await asyncio.sleep(6.0)
 
                 logger.info(
                     "Session %s Turn %d: %s -> %s @ %s%.2f/unit | %s",

@@ -223,6 +223,25 @@ def _extract_scenario(context_data: dict) -> dict:
     """Extract scenario fields from the context dict with sensible defaults."""
     scenario = context_data.get("scenario", {})
     if isinstance(scenario, dict) and scenario:
+        # A NegotiationScenario.model_dump() nests per-item pricing under
+        # `line_items` and omits the flat accessors (`market_reference_price`,
+        # `quantity`, …) because those are plain @property shims, not
+        # @computed_field. Callers below index the flat keys directly, so
+        # derive them from the first line item when they're absent — otherwise
+        # every turn after the opening offer dies on a KeyError.
+        if "market_reference_price" not in scenario:
+            items = scenario.get("line_items") or []
+            first = items[0] if isinstance(items, list) and items else {}
+            scenario = {
+                **scenario,
+                "product_name": scenario.get("product_name", first.get("product_name", "items")),
+                "quantity": scenario.get("quantity", first.get("quantity", 100)),
+                "market_reference_price": first.get("market_reference_price", 480.0),
+                "buyer_budget_cap": first.get("buyer_budget_cap", 500.0),
+                "buyer_target_price": first.get("buyer_target_price", 440.0),
+                "seller_floor_price": first.get("seller_floor_price", 420.0),
+                "seller_asking_price": first.get("seller_asking_price", 550.0),
+            }
         return scenario
     # Fall back to flat scenario_xxx fields for backwards compatibility
     return {

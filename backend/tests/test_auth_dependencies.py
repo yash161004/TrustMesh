@@ -1,8 +1,23 @@
+import os
 import pytest
 from fastapi import HTTPException
 from unittest.mock import patch, MagicMock, AsyncMock
 from app.auth.dependencies import get_current_user, require_role
 from app.db import User
+
+
+@pytest.fixture(autouse=True)
+def _enforce_auth():
+    # get_current_user short-circuits to a dummy system user when auth is not
+    # enforced; these tests exercise the real header/JWT path, so force it on.
+    prev = os.environ.get("AUTH_ENFORCED")
+    os.environ["AUTH_ENFORCED"] = "true"
+    yield
+    if prev is None:
+        os.environ.pop("AUTH_ENFORCED", None)
+    else:
+        os.environ["AUTH_ENFORCED"] = prev
+
 
 @pytest.mark.asyncio
 async def test_get_current_user_no_bearer():
