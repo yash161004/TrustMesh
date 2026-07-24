@@ -2,7 +2,7 @@
 
 Operational, evaluation, identity/crypto, and data-generation utilities for the TrustMesh backend.
 
-> **Scope Rule:** This directory contains durable, named operational utilities only. Do **not** add temporary debug or one-off investigation scripts here. Unused one-off scripts (`backfill_trust.py`, `benchmark_write_time_integrity.py`, `check_agent_card_consistency.py`, `migrate_sqlite_to_postgres.py`, `run_adversarial_round2.py`, `run_holdout.py`, `test_org_visibility.py`, `verify_migration.py`) have been consolidated or removed to maintain clean repository hygiene.
+> **Scope Rule:** This directory contains durable, named operational utilities only. Do **not** add temporary debug or one-off investigation scripts here. Unused one-off scripts (`backfill_trust.py`, `backfill_model_provider.py`, `benchmark_write_time_integrity.py`, `burn_in_test_v2.py`, `check_agent_card_consistency.py`, `inspect_v6_failures.py`, `migrate_sqlite_to_postgres.py`, `query_db.py`, `query_test_batch.py`, `query_v6_breakdown.py`, `query_v6_sessions.py`, `run_adversarial_round2.py`, `run_holdout.py`, `test_org_visibility.py`, `verify_all_ledgers.py`, `verify_migration.py`, `verify_real_token.py`) have been consolidated or removed to maintain clean repository hygiene.
 
 ---
 
@@ -34,6 +34,11 @@ Operational, evaluation, identity/crypto, and data-generation utilities for the 
 - **`check_ngrok.py`** — Health check utility to verify ngrok tunnel status and retrieve the active public URL for Clerk webhooks.
   ```bash
   python backend/scripts/check_ngrok.py
+  ```
+
+- **`inspect_real_rows.py`** — Database row inspection utility for production/live negotiation sessions.
+  ```bash
+  python backend/scripts/inspect_real_rows.py
   ```
 
 - **`qa_screenshots.py`** — Playwright dashboard screenshot generator for QA verification.
