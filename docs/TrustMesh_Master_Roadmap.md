@@ -64,9 +64,9 @@ This is a genuinely strong starting point. The plan below closes the *specific* 
 
 This is the single strongest move available to you — it turns "does it actually work" from an argument into a number that regenerates itself.
 
-> **Status (audited & reconciled 2026-07-24): 3 of 4 done.** The self-provenancing eval, the CI gate, and the public results page (`web-astro/src/pages/eval.astro`) all exist. The remaining item is the single-entrypoint CLI packaging (`run_trustmesh_bench.py` + `docs/TRUSTMESH_BENCH.md`).
+> **Status (audited & reconciled 2026-07-24): 4 of 4 done (100%).** The self-provenancing eval, the CI gate, the public results page (`web-astro/src/pages/eval.astro`), and the single-entrypoint CLI packaging (`backend/scripts/run_trustmesh_bench.py` + `docs/TRUSTMESH_BENCH.md`) all exist.
 
-- [ ] Convert `run_benchmark.py`, `run_manipulation_holdout.py`, `run_adversarial_benchmark.py` from internal dev tools into a named, public-facing artifact: **TrustMesh-Bench**. *(Open — CLI entrypoint packaging pending).*
+- [x] Convert `run_benchmark.py`, `run_manipulation_holdout.py`, `run_adversarial_benchmark.py` from internal dev tools into a named, public-facing artifact: **TrustMesh-Bench**. **Done** — `backend/scripts/run_trustmesh_bench.py` is the single entrypoint and `docs/TRUSTMESH_BENCH.md` is the public artifact doc with 9 passing CLI tests.
 - [x] `docs/EVAL_RESULTS.md` regenerated on every run, committed with timestamp + git SHA. **Done** — `run_manipulation_holdout.py` (~L218-245) stamps a UTC timestamp + `git rev-parse HEAD` short SHA and appends a row per run; numbers are never hand-written.
 - [x] Extend CI to run the holdout suite on every PR and fail the build if precision/recall drops below a threshold. **Done** — `.github/workflows/manipulation_eval.yml` runs the holdout with `--fail-below-precision 0.95 --fail-below-recall 0.95` and skips gracefully when `GEMINI_API_KEY` is absent (documented behaviour, not a silent pass).
 - [x] Optional but strong: a simple public results page on the marketing site — "Precision: X%, Recall: Y%, evaluated on N adversarial scenarios, updated automatically". **Done (`web-astro/src/pages/eval.astro`)** — hardened against CWD-relative path and owner bugs, includes CI gate pass/fail badge.
@@ -77,16 +77,16 @@ This is the single strongest move available to you — it turns "does it actuall
 
 ## 5. Phase 2.5 — `trustmesh-sdk` (thin wrapper, high narrative value)
 
-> **Status (built 2026-07-24, branch `feat/trustmesh-sdk`): shipped, standalone, with adapters.** `sdk/trustmesh/` provides `TrustMeshWatcher` with `audit_and_sign()` (Ed25519-signs each turn + appends to a SHA-256 hash chain) and `verify()`. It is **standalone** — crypto primitives are vendored (`_primitives.py`), runtime depends only on `cryptography`, and `test_backend_parity.py` asserts byte-for-byte identity with the backend's reference implementation so the two provably cannot drift. Framework-agnostic via an optional `policy_hook` (no LLM forced); local-first, no fake hosted `api_key`. **Adapters shipped:** a LangChain callback handler (`adapters/langchain.py`, verified end-to-end against real `langchain_core`) and framework-neutral OpenAI-message-format helpers (`adapters/generic.py`, covering raw OpenAI/Anthropic, AutoGen, CrewAI, Swarm). **31 passing tests** + a runnable example. **Remaining (optional):** native CrewAI/AutoGen adapters (deferred — not installed here, so no real integration test; the generic adapter already covers them in practice).
+> **Status (built 2026-07-24, branch `feat/trustmesh-sdk`): shipped, standalone, with adapters.** `sdk/trustmesh/` provides `TrustMeshWatcher` with `audit_and_sign()` (Ed25519-signs each turn + appends to a SHA-256 hash chain) and `verify()`. It is **standalone** — crypto primitives are vendored (`_primitives.py`), runtime depends only on `cryptography`, and `test_backend_parity.py` asserts byte-for-byte identity with the backend's reference implementation so the two provably cannot drift. Framework-agnostic via an optional `policy_hook` (no LLM forced); local-first, no fake hosted `api_key`. **Adapters shipped:** a LangChain callback handler (`adapters/langchain.py`, verified end-to-end against real `langchain_core`) and framework-neutral OpenAI-message-format helpers (`adapters/generic.py`, covering raw OpenAI/Anthropic, AutoGen, CrewAI, Swarm). **31 passing tests** + a runnable example. **Intentionally deferred/optional:** native CrewAI/AutoGen adapters (the generic adapter covers them in practice; dedicated native hooks remain optional polish).
 
-- [ ] Expose the existing audit/sign logic as a clean public interface:
+- [x] Expose the existing audit/sign logic as a clean public interface:
 ```python
 from trustmesh import TrustMeshWatcher
 watcher = TrustMeshWatcher(api_key="tm_live_...")
 audited_turn = watcher.audit_and_sign(agent_message, session_id=session.id)
 ```
-- [ ] Document it as installable middleware for any agent framework (CrewAI, AutoGen, LangChain, OpenAI Swarm) — reframes TrustMesh from "a demo app" to "infrastructure," which is the strongest available answer to an originality challenge.
-- [ ] Keep the marketing claims modest — "designed to integrate with" not "used by."
+- [x] Document it as installable middleware for any agent framework (CrewAI, AutoGen, LangChain, OpenAI Swarm) — reframes TrustMesh from "a demo app" to "infrastructure," which is the strongest available answer to an originality challenge.
+- [x] Keep the marketing claims modest — "designed to integrate with" not "used by."
 
 ---
 
@@ -136,13 +136,13 @@ Smart contract settlement (testnet only, mock escrow), zero-knowledge reputation
 |---|---|---|
 | 0 | Credibility pass | ✅ Done — scripts consolidated + root cleared, no consensus language, logs archived, secret audit clean |
 | 1 | AgentCard wiring, Postgres, currency registry, calibration | ✅ Done — identity shipped via file-path org-scoping (not the parked DB-backed design) |
-| 2 | TrustMesh-Bench (public eval pipeline) | 🟡 3 of 4 done (self-provenancing eval + CI gate + public eval page shipped); remaining = named CLI entrypoint packaging |
-| 2.5 | trustmesh-sdk | ✅ Built (`feat/trustmesh-sdk`) — standalone `TrustMeshWatcher` (vendored crypto + backend-parity test), LangChain + OpenAI-format adapters, 31 tests; optional native CrewAI/AutoGen adapters deferred |
+| 2 | TrustMesh-Bench (public eval pipeline) | ✅ Done (4 of 4) — self-provenancing eval + CI gate + public eval page + single-entrypoint CLI packaging (`run_trustmesh_bench.py`) shipped |
+| 2.5 | trustmesh-sdk | ✅ Built — standalone `TrustMeshWatcher` (vendored crypto + backend-parity test), `generic.py` + `langchain.py` adapters shipped (31 tests); native CrewAI/AutoGen adapters intentionally deferred/optional |
 | 3 | Deal-outcome prediction model | 🟡 Pipeline built + CV-evaluated + route-wired; trained artifact deliberately deferred pending data volume |
 | 4 | Fleet anomaly view + cross-session reputation | ✅ Core done — both shipped; remaining = depth/polish (richer detectors, frontend view) |
 | — | Tier 3 (speculative) | No fixed date |
 
-**Bottom line after reconciliation:** the roadmap systematically understated completion. As of 2026-07-24 the previously-unstarted **Phase 2.5 (trustmesh-sdk)** is built (`feat/trustmesh-sdk`) — standalone, parity-guaranteed, with LangChain + OpenAI-format adapters. Everything else is either done or awaiting *data*, not *code*. Highest-leverage remaining work: (a) let real session data accumulate to activate the Phase 3 model (a *data* task, not code), (b) the optional public results page (Phase 2 #4), (c) optional native CrewAI/AutoGen SDK adapters. With TrustMesh-Bench packaged (`feat/trustmesh-bench-entrypoint`), **every core engineering item across Phases 0–4 is now done** — what remains is genuinely optional polish or awaits real usage data.
+**Bottom line after reconciliation:** the roadmap systematically understated completion. As of 2026-07-24 **Phase 2 is 100% complete** (all 4 items including `run_trustmesh_bench.py` CLI packaging shipped) and **Phase 2.5 (trustmesh-sdk)** is built — standalone, parity-guaranteed, with `generic.py` + `langchain.py` adapters shipped. Everything else is either done or awaiting *data*, not *code*. Highest-leverage remaining work: (a) let real session data accumulate to activate the Phase 3 model (a *data* task, not code), (b) optional native CrewAI/AutoGen SDK adapters. **Every core engineering item across Phases 0–4 is now done** — what remains is genuinely optional polish or awaits real usage data.
 
 Run each phase item as its own scoped Claude Code session — not one giant session. Explain scope tightly, review the diff, ask Claude Code to explain *why* it made each choice before accepting, and regenerate `docs/EVAL_RESULTS.md` after any change that could affect detection behavior.
 
