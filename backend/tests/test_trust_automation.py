@@ -18,7 +18,11 @@ async def test_trust_evaluated_automatically_on_completion():
         "buyer_agent_id": "buyer-agent-001",
         "seller_agent_id": "seller-agent-001",
         "buyer_identity_id": "buyer-ident-001",
-        "seller_identity_id": "seller-ident-001"
+        "seller_identity_id": "seller-ident-001",
+        # Use the mock provider: this test covers trust-report automation, not
+        # live inference. Without it the request defaults to gemini and fails in
+        # CI with "Cannot create real session: GEMINI_API_KEY is missing".
+        "provider": "mock",
     }
     
     from app.auth.dependencies import get_current_user

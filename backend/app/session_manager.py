@@ -37,6 +37,7 @@ from .db import (
     update_agent_reputation_v2,
 )
 from .trust.engine import trust_engine
+from .trust.models import ViolationStatus
 from .crypto.signing import get_public_key_b64, sign_message, sign_message_for_agent
 from .identity.agent_card import get_or_create_agent_card, card_file_path, verify_agent_card
 from .crypto.ledger import _GENESIS_HASH, build_entry, verify_chain
@@ -142,6 +143,15 @@ class SessionManager:
         self.session_locks: dict[str, asyncio.Lock] = {}
         self._lock = asyncio.Lock()
         self._initialised = False  # Whether we've loaded from DB
+
+    def reset(self) -> None:
+        """Reset in-memory state and caches (for test isolation)."""
+        self.sessions.clear()
+        self.agents.clear()
+        self.contexts.clear()
+        self.scenarios.clear()
+        self.session_locks.clear()
+        self._initialised = False
 
     async def _ensure_initialised(self) -> None:
         """Initialize database connection without pre-loading all sessions into memory."""
@@ -402,8 +412,13 @@ class SessionManager:
                 # Persist each message immediately
                 await self._persist_message(session_id, response)
 
-                # Throttle turn generation to stay under 15 RPM (1 call every 6s = 10 RPM max)
-                await asyncio.sleep(6.0)
+                # Throttle turn generation to stay under real LLM provider rate
+                # limits (~10 RPM). The mock provider makes no external calls, so
+                # skip the throttle there — otherwise every mock/test/CI run pays
+                # 6s per turn for no reason.
+                is_mock = getattr(getattr(current_agent, "llm_client", None), "model_name", None) == "mock"
+                if not is_mock:
+                    await asyncio.sleep(6.0)
 
                 logger.info(
                     "Session %s Turn %d: %s -> %s @ %s%.2f/unit | %s",
@@ -531,14 +546,21 @@ class SessionManager:
         public_key_b64 = None
         if role and msg.sender:
             try:
-                get_or_create_agent_card(
-                    agent_id=msg.sender,
-                    role=role,
-                    org_id=org_id,
-                    owner_user_id=user_id,
-                )
+                c_path = card_file_path(msg.sender, org_id)
+                if not c_path.exists():
+                    fallback_path = card_file_path(msg.sender)
+                    if fallback_path.exists():
+                        c_path = fallback_path
+                    else:
+                        card, _ = get_or_create_agent_card(
+                            agent_id=msg.sender,
+                            role=role,
+                            org_id=org_id,
+                            owner_user_id=user_id,
+                        )
+                        c_path = card_file_path(card.agent_id, card.org_id)
+
                 # Enforce AgentCard verification and org-tenancy check at message time
-                c_path = card_file_path(msg.sender)
                 if not verify_agent_card(c_path, expected_org_id=org_id):
                     raise ValueError(f"AgentCard org tenancy check failed for {msg.sender} (expected org_id={org_id})")
 
@@ -661,10 +683,28 @@ class SessionManager:
 
         # Apply reputation update ONLY on first calculation if requested
         if update_reputation and not recompute:
+            # Collect each agent's non-disputed violation severities so the cross-session
+            # reputation penalty is weighted by how bad the violations were, not just how
+            # many. DISPUTED violations are excluded to match the in-session scoring rule.
+            def _severities_for(agent_id: str) -> list[str]:
+                return [
+                    v.severity.value if hasattr(v.severity, "value") else str(v.severity)
+                    for v in report.violations
+                    if v.agent_id == agent_id and v.status != ViolationStatus.DISPUTED
+                ]
+
             if session.buyer_agent_id:
-                await update_agent_reputation_v2(session.buyer_agent_id, report.buyer_score.violation_count)
+                await update_agent_reputation_v2(
+                    session.buyer_agent_id,
+                    report.buyer_score.violation_count,
+                    session_severities=_severities_for(session.buyer_agent_id),
+                )
             if session.seller_agent_id:
-                await update_agent_reputation_v2(session.seller_agent_id, report.seller_score.violation_count)
+                await update_agent_reputation_v2(
+                    session.seller_agent_id,
+                    report.seller_score.violation_count,
+                    session_severities=_severities_for(session.seller_agent_id),
+                )
 
 
 

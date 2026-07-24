@@ -1,9 +1,13 @@
 import logging
+import os
 import sys
 import structlog
 
 def setup_logging():
-    # Setup structlog
+    json_output = os.environ.get("LOG_JSON", "").lower() in ("1", "true", "yes")
+    if not json_output:
+        json_output = os.environ.get("APP_ENV", "development") == "production"
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -19,7 +23,8 @@ def setup_logging():
         cache_logger_on_first_use=True,
     )
 
-    # Configure standard library logging to route to structlog
+    renderer = structlog.dev.ConsoleRenderer() if not json_output else structlog.processors.JSONRenderer()
+
     formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=[
             structlog.stdlib.add_log_level,
@@ -27,20 +32,18 @@ def setup_logging():
             structlog.processors.TimeStamper(fmt="iso"),
         ],
         processors=[
-            structlog.processors.JSONRenderer(),
+            renderer,
         ],
     )
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
-    
-    # Root logger
+
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
-    root_logger.setLevel(logging.INFO)
+    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    root_logger.setLevel(getattr(logging, log_level, logging.INFO))
 
-    # Uvicorn logs intercept
     for _log in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
-        # Clear existing handlers
         logging.getLogger(_log).handlers.clear()
         logging.getLogger(_log).propagate = True

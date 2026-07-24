@@ -336,3 +336,95 @@ class TestTamperDetectionViaAPI:
         assert data["chain_valid"] is True
         assert data["broken_at"] is None
         assert data["entries"] == []
+
+
+class TestTamperAlertWiring:
+    """A tamper detected on a ledger *read* (not just at write time) must fire
+    the same alert path. Covers the two read-side verify_chain() call sites:
+    GET /ledger and GET /export (PDF)."""
+
+    @pytest.mark.asyncio
+    async def test_ledger_read_fires_alert_on_tamper(self, test_client, monkeypatch):
+        from unittest.mock import AsyncMock
+        import app.routes.sessions as sessions_route
+
+        spy = AsyncMock(return_value=True)
+        monkeypatch.setattr(sessions_route, "trigger_tamper_alert", spy)
+
+        resp = test_client.post("/api/v1/sessions", json={"provider": "mock"})
+        sid = resp.json()["session_id"]
+        await _build_and_save_chain(sid, 3)
+
+        # Valid read -> no alert.
+        assert test_client.get(f"/api/v1/sessions/{sid}/ledger").json()["chain_valid"] is True
+        spy.assert_not_awaited()
+
+        # Tamper, then read -> alert fires with the read-path reason.
+        await _tamper_field(sid, 2, "message_json", None)
+        data = test_client.get(f"/api/v1/sessions/{sid}/ledger").json()
+        assert data["chain_valid"] is False
+
+        spy.assert_awaited_once()
+        kwargs = spy.await_args.kwargs
+        assert kwargs["session_id"] == sid
+        assert kwargs["reason"] == "ledger_read_integrity_check"
+        assert kwargs["broken_at"] == 2
+        assert kwargs["org_id"] == "test-org-1"
+
+    @pytest.mark.asyncio
+    async def test_pdf_export_fires_alert_on_tamper(self, test_client, monkeypatch):
+        from unittest.mock import AsyncMock
+        import app.routes.sessions as sessions_route
+
+        spy = AsyncMock(return_value=True)
+        monkeypatch.setattr(sessions_route, "trigger_tamper_alert", spy)
+
+        resp = test_client.post("/api/v1/sessions", json={"provider": "mock"})
+        sid = resp.json()["session_id"]
+        await _build_and_save_chain(sid, 3)
+        await _tamper_field(sid, 1, "entry_hash", None)
+
+        export_resp = test_client.get(f"/api/v1/sessions/{sid}/export")
+        assert export_resp.status_code == 200
+
+        spy.assert_awaited_once()
+        kwargs = spy.await_args.kwargs
+        assert kwargs["session_id"] == sid
+        assert kwargs["reason"] == "pdf_export_integrity_check"
+        assert kwargs["broken_at"] == 1
+
+    @pytest.mark.asyncio
+    async def test_alert_dedups_across_repeated_reads(self, test_client):
+        """The real alert path claims each session once, so repeated reads of a
+        tampered ledger don't re-page. Uses the genuine trigger_tamper_alert."""
+        from app.crypto.ledger_alerts import clear_alerted_sessions_cache
+        from app.db import get_agent_reputation  # noqa: F401  (ensures db module loaded)
+
+        clear_alerted_sessions_cache()
+
+        resp = test_client.post("/api/v1/sessions", json={"provider": "mock"})
+        sid = resp.json()["session_id"]
+        await _build_and_save_chain(sid, 3)
+        await _tamper_field(sid, 2, "message_json", None)
+
+        # Two reads of the same tampered ledger — both report broken, no error.
+        for _ in range(2):
+            data = test_client.get(f"/api/v1/sessions/{sid}/ledger").json()
+            assert data["chain_valid"] is False
+            assert data["broken_at"] == 2
+
+        # The DB claim was taken exactly once.
+        import app.db as db_module
+        from sqlalchemy import select
+        factory = db_module._async_session_factory
+        async with factory() as db:
+            row = (
+                await db.execute(
+                    select(db_module.SessionRecord.tamper_alerted_at).where(
+                        db_module.SessionRecord.id == sid
+                    )
+                )
+            ).first()
+        assert row is not None and row[0] is not None, "tamper_alerted_at should be claimed once"
+
+        clear_alerted_sessions_cache()

@@ -70,22 +70,36 @@ def sign_agent_card(card: AgentCard, role_or_agent_id: str | None = None) -> tup
     return card, signature_b64
 
 
-def card_file_path(agent_id: str) -> Path:
-    """Return the local filesystem path for an AgentCard."""
+def card_file_path(agent_id: str, org_id: str | None = None) -> Path:
+    """Return the local filesystem path for an AgentCard.
+
+    Scopes the card path as '{org_id}__{agent_id}.json' if org_id is provided,
+    or '{agent_id}.json' if org_id is None. If org_id is None and an un-scoped
+    path does not exist, searches for an existing '{any_org}__{agent_id}.json' file.
+    """
     CARDS_DIR.mkdir(parents=True, exist_ok=True)
     safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in agent_id)
-    return CARDS_DIR / f"{safe_id}.json"
+    if org_id:
+        safe_org = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in org_id)
+        return CARDS_DIR / f"{safe_org}__{safe_id}.json"
+
+    default_path = CARDS_DIR / f"{safe_id}.json"
+    if not default_path.exists():
+        matches = list(CARDS_DIR.glob(f"*__{safe_id}.json"))
+        if matches:
+            return matches[0]
+    return default_path
 
 
 def write_agent_card(card: AgentCard, signature_b64: str) -> Path:
     """Persist a signed AgentCard to a local JSON file."""
-    path = card_file_path(card.agent_id)
+    path = card_file_path(card.agent_id, card.org_id)
     payload = {
         "card": card.model_dump(mode="json"),
         "signature": signature_b64,
     }
     path.write_text(json.dumps(payload, indent=2, default=str))
-    logger.info("Wrote AgentCard for %s (%s) to %s", card.role, card.agent_id, path)
+    logger.info("Wrote AgentCard for %s (%s, org=%s) to %s", card.role, card.agent_id, card.org_id, path)
     return path
 
 
@@ -176,7 +190,7 @@ def get_or_create_agent_card(
     Ensures no concurrent duplicate card creation / key clobbering.
     Binds org_id and owner_user_id from caller's authenticated context.
     """
-    path = card_file_path(agent_id)
+    path = card_file_path(agent_id, org_id)
     with _card_lock:
         if path.exists():
             try:
@@ -185,7 +199,7 @@ def get_or_create_agent_card(
                 sig = data["signature"]
                 return card, sig
             except Exception as e:
-                logger.warning("Failed to load existing AgentCard for %s: %s", agent_id, e)
+                logger.warning("Failed to load existing AgentCard for %s (org=%s): %s", agent_id, org_id, e)
 
         return generate_agent_card(
             role=role,

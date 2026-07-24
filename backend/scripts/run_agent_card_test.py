@@ -25,7 +25,7 @@ async def main():
     print(f"\n2. Generating AgentCard for {agent_id} ({role})...")
     card, sig = generate_agent_card(role=role, agent_id=agent_id)
     
-    path = card_file_path(agent_id)
+    path = card_file_path(agent_id, card.org_id)
     print(f"Card written to {path}")
     
     print("\n3. Verifying valid AgentCard...")

@@ -93,4 +93,7 @@ async def clerk_webhook(request: Request, db: AsyncSession = Depends(get_session
         await db.commit()
         logger.info(f"Handled {evt_type} for org {clerk_org_id}")
 
+    else:
+        logger.warning("Unhandled webhook evt_type=%s", evt_type)
+
     return {"success": True}

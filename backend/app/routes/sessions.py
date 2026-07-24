@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from ..auth.dependencies import get_current_user, get_current_user_ws
 from ..config import get_settings
 from ..crypto.ledger import verify_chain
+from ..crypto.ledger_alerts import trigger_tamper_alert
 from ..db import User, load_ledger_entries, load_trust_report, save_trust_report, get_agent_reputation, update_agent_reputation_v2
 from ..limiter import limiter
 from ..models import NegotiationMessage, NegotiationScenario, NegotiationSession, NegotiationSessionStatus, DEFAULT_SCENARIO
@@ -279,7 +280,16 @@ async def export_session_pdf(
 
         raw_entries = await load_ledger_entries(session_id)
         chain_valid, broken_at = verify_chain(raw_entries)
-        
+        if not chain_valid:
+            # A tampered chain surfaced while exporting the audit PDF — alert on the
+            # same dedup-safe path used by the ledger read and the write-time check.
+            await trigger_tamper_alert(
+                session_id=session_id,
+                org_id=session.org_id,
+                broken_at=broken_at,
+                reason="pdf_export_integrity_check",
+            )
+
         ledger_dict = {
             "chain_valid": chain_valid,
             "entries": [e for e in raw_entries]
@@ -425,6 +435,17 @@ async def get_ledger(
     raw_entries = await load_ledger_entries(session_id)
     entries = [LedgerEntry(**e) for e in raw_entries]
     chain_valid, broken_at = verify_chain(raw_entries)
+    if not chain_valid:
+        # Post-facto tampering can be caught on a ledger *read*, not just at write
+        # time — fire the same alert path so a chain broken after the fact still
+        # pages someone. trigger_tamper_alert dedups per session (in-memory + atomic
+        # DB claim), so repeated reads of a tampered ledger send exactly one webhook.
+        await trigger_tamper_alert(
+            session_id=session_id,
+            org_id=session.org_id,
+            broken_at=broken_at,
+            reason="ledger_read_integrity_check",
+        )
     return LedgerResponse(
         session_id=session_id,
         entries=entries,

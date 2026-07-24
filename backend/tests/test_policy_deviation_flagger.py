@@ -96,9 +96,70 @@ def test_multiple_violations():
     flagger = PolicyDeviationFlagger()
     scenario = get_base_scenario()
     message = get_base_message(role="seller", price=300.0, quantity=50)
-    
+
     result = flagger.evaluate(message, scenario, "seller")
     assert result["flagged"]
     assert result["trust_impact"] == -65
     assert "below floor" in result["reason"]
     assert "quantity" in result["reason"]
+
+
+def test_currency_symbol_swap_detected():
+    """A foreign currency *symbol* (not just its code) is now detected."""
+    flagger = PolicyDeviationFlagger()
+    scenario = get_base_scenario()  # USD
+    message = get_base_message(role="seller")
+    message.delivery_terms = "Settle in €480/unit."  # EUR symbol
+    result = flagger.evaluate(message, scenario, "seller")
+    assert result["flagged"]
+    assert "unexpected currency" in result["reason"]
+
+
+def test_scenario_dollar_symbol_not_flagged():
+    """The scenario's own currency and the ambiguous '$' do not trigger a swap flag."""
+    flagger = PolicyDeviationFlagger()
+    scenario = get_base_scenario()  # USD ($)
+    message = get_base_message(role="seller")
+    message.delivery_terms = "Pay $500 total on delivery."
+    result = flagger.evaluate(message, scenario, "seller")
+    # No foreign code or non-ambiguous symbol present.
+    assert "unexpected currency" not in result.get("reason", "")
+
+
+def test_currency_code_word_boundary():
+    """A code embedded in another token is not a false-positive swap."""
+    flagger = PolicyDeviationFlagger()
+    scenario = get_base_scenario()  # USD
+    message = get_base_message(role="seller")
+    message.delivery_terms = "Delivery to EURspares warehouse."  # 'EUR' inside a word
+    result = flagger.evaluate(message, scenario, "seller")
+    assert "unexpected currency" not in result.get("reason", "")
+
+
+def test_invalid_currency_rejected():
+    """NegotiationScenario rejects a currency not in the registry."""
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        NegotiationScenario(
+            currency="XYZ",
+            line_items=[LineItem(
+                sku="SKU-TEST", product_name="Test", quantity=10, unit="units",
+                market_reference_price=100.0, buyer_target_price=90.0,
+                buyer_budget_cap=110.0, seller_asking_price=120.0, seller_floor_price=80.0,
+            )],
+            delivery_preference_days=10, standard_delivery_days=20,
+        )
+
+
+def test_currency_normalized_to_upper():
+    """Lowercase currency input is normalized against the registry."""
+    scenario = NegotiationScenario(
+        currency="usd",
+        line_items=[LineItem(
+            sku="SKU-TEST", product_name="Test", quantity=10, unit="units",
+            market_reference_price=100.0, buyer_target_price=90.0,
+            buyer_budget_cap=110.0, seller_asking_price=120.0, seller_floor_price=80.0,
+        )],
+        delivery_preference_days=10, standard_delivery_days=20,
+    )
+    assert scenario.currency == "USD"

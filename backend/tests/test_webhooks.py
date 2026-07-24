@@ -105,7 +105,10 @@ async def test_clerk_webhook_org_created(mock_verify, test_client, monkeypatch):
         await db.commit()
     
     payload = {
-        "type": "organization.membership.created",
+        # Clerk's event name is camelCase; "organization.membership.created"
+        # matches no branch in the handler, so it silently no-ops and the org
+        # is never created.
+        "type": "organizationMembership.created",
         "data": {
             "organization": {
                 "id": "org_123",

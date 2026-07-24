@@ -501,6 +501,24 @@ class NegotiationScenario(BaseModel):
         description="Premium per unit for expedited delivery; None = not available.",
     )
 
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _validate_currency(cls, v: str) -> str:
+        """Normalize and validate the currency against the config-driven registry.
+
+        The registry (env var TRUSTMESH_CURRENCIES) is the single source of truth —
+        do not hardcode currency lists elsewhere. Unknown codes are rejected rather
+        than silently accepted.
+        """
+        from .currency_registry import registry
+        code = str(v).strip().upper()
+        if not registry.is_valid(code):
+            raise ValueError(
+                f"Unsupported currency {v!r}. Configured currencies: "
+                f"{', '.join(registry.codes)}. Add it to TRUSTMESH_CURRENCIES to enable."
+            )
+        return code
+
     @model_validator(mode="after")
     def _check_price_sanity(self):
         """Raise error if the buyer and seller price ranges don't overlap for any line item."""
@@ -512,30 +530,37 @@ class NegotiationScenario(BaseModel):
                 )
         return self
 
+    @computed_field
     @property
     def product_name(self) -> str:
         return self.line_items[0].product_name if self.line_items else ""
 
+    @computed_field
     @property
     def quantity(self) -> int:
         return self.line_items[0].quantity if self.line_items else 1
 
+    @computed_field
     @property
     def market_reference_price(self) -> float:
         return self.line_items[0].market_reference_price if self.line_items else 0.0
 
+    @computed_field
     @property
     def buyer_target_price(self) -> float:
         return self.line_items[0].buyer_target_price if self.line_items else 0.0
 
+    @computed_field
     @property
     def buyer_budget_cap(self) -> float:
         return self.line_items[0].buyer_budget_cap if self.line_items else 0.0
 
+    @computed_field
     @property
     def seller_asking_price(self) -> float:
         return self.line_items[0].seller_asking_price if self.line_items else 0.0
 
+    @computed_field
     @property
     def seller_floor_price(self) -> float:
         return self.line_items[0].seller_floor_price if self.line_items else 0.0

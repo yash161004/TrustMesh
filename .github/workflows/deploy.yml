@@ -5,23 +5,42 @@ on:
     branches:
       - master
 
-concurrency:
-  group: deploy-master
-  cancel-in-progress: false
-
 jobs:
-  deploy:
-    name: Trigger Render Deploy Hook
+  test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Trigger Deploy
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run pytest
+      working-directory: ./backend
+      run: |
+        PYTHONPATH="." pytest tests/ -v
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Trigger Render deploy hook
       env:
         RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
       run: |
         if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-          echo "ERROR: RENDER_DEPLOY_HOOK_URL repository secret is not set! Cannot trigger deployment."
-          exit 1
+          echo "RENDER_DEPLOY_HOOK_URL is not set — skipping deploy. Create a deploy hook in Render dashboard and add it as a repo secret."
+          exit 0
         fi
-        echo "Triggering Render deployment..."
-        curl -X POST -f "$RENDER_DEPLOY_HOOK_URL"
+        echo "Deploying to Render..."
+        curl -X POST "$RENDER_DEPLOY_HOOK_URL"
+        echo "Deploy hook triggered."

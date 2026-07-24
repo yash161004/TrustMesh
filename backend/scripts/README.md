@@ -1,37 +1,129 @@
-# TrustMesh Backend Scripts Directory
+# TrustMesh Backend Scripts
 
-This directory contains database management tools, evaluation runners, identity & crypto verification scripts, and test suites.
+Operational, evaluation, identity/crypto, and data-generation utilities for the TrustMesh backend.
 
-## Consolidated CLI Tools
-- `db_inspect.py` — Database inspection CLI tool (subcommands: `session-status`, `trust-json`, `count-reports`, `status`, `users`).
-- `db_admin.py` — Database administration CLI tool (subcommands: `clear-users`, `make-admin`, `resync-sequences`, `init-schema`).
-- `user_provisioning.py` — User provisioning CLI tool (subcommands: `insert-system`, `insert-user`).
-- `qa_screenshots.py` — Automated dashboard screenshot generator using Playwright.
+> **Scope Rule:** This directory contains durable, named operational utilities only. Do **not** add temporary debug or one-off investigation scripts here. Unused one-off scripts (`backfill_trust.py`, `backfill_model_provider.py`, `benchmark_write_time_integrity.py`, `burn_in_test_v2.py`, `check_agent_card_consistency.py`, `inspect_v6_failures.py`, `migrate_sqlite_to_postgres.py`, `query_db.py`, `query_test_batch.py`, `query_v6_breakdown.py`, `query_v6_sessions.py`, `run_adversarial_round2.py`, `run_holdout.py`, `test_org_visibility.py`, `verify_all_ledgers.py`, `verify_migration.py`, `verify_real_token.py`) have been consolidated or removed to maintain clean repository hygiene.
 
-## Core Operations & Seed Tools
-- `seed_demo_data.py` — Seeds demo sessions, scenarios, and agents into the database. Run during initial setup or demo reset.
-- `seed_ledger_entries.py` — Seeds cryptographic ledger entries and hash-chain blocks for demo sessions.
-- `backfill_trust.py` — Evaluates and populates trust reports for completed sessions missing trust evaluations.
-- `migrate_sqlite_to_postgres.py` — Migrates data from local SQLite (`trustmesh.db`) to target PostgreSQL instance.
-- `verify_migration.py` — Validates row counts and schema integrity after SQLite-to-Postgres migration.
-- `tamper_ledger_demo.py` — Simulates or restores a hash-chain tamper attempt for demonstration purposes.
-- `burn_in_test_v2.py` — Stress burn-in test runner for evaluating API stability over extended multi-session runs.
+---
 
-## Identity & Crypto Verification Tools
-- `generate_agent_cards.py` — Generates and signs ERC-8004 AgentCard descriptors for all registered agent identities.
-- `check_agent_card_consistency.py` — Validates consistency between AgentCard files on disk and agent database records.
-- `run_agent_card_test.py` — End-to-end verification runner for AgentCard creation, signing, and tamper detection.
-- `verify_all_ledgers.py` — Verifies the cryptographic hash-chain validity across all session ledgers in the database.
-- `verify_real_token.py` — Validates real Clerk JWT authentication tokens against the API backend.
+## 1. Operational & Administration CLIs
 
-## Evaluation & Benchmark Runners
-- `run_benchmark.py` — Benchmark suite runner evaluating trust engine scoring across standard negotiation scenarios.
-- `run_holdout.py` — Evaluation runner testing trust engine accuracy on held-out negotiation scenarios.
-- `run_manipulation_holdout.py` — Evaluation runner testing manipulation detector against holdout adversarial cases (invoked by CI `manipulation_eval.yml`).
-- `run_adversarial_benchmark.py` — Round 1 adversarial scenario benchmark runner.
-- `run_adversarial_round2.py` — Round 2 adversarial scenario benchmark runner.
-- `compute_calibration_metrics.py` — Computes calibration and accuracy metrics across benchmark execution results.
+- **`db_inspect.py`** — Consolidated DB inspection CLI utility.
+  ```bash
+  python scripts/db_inspect.py session-status
+  python scripts/db_inspect.py trust-json [--limit 5]
+  python scripts/db_inspect.py count-reports
+  python scripts/db_inspect.py status
+  python scripts/db_inspect.py users [--limit 5]
+  ```
 
-## Load & Tenancy Verification Tests
-- `test_multitenant_load.py` — Multi-tenant load test runner evaluating concurrent org session and ledger performance.
-- `test_org_visibility.py` — Tenancy isolation test runner verifying cross-org data visibility boundaries.
+- **`db_admin.py`** — Consolidated DB administration CLI utility.
+  ```bash
+  python scripts/db_admin.py clear-users
+  python scripts/db_admin.py make-admin [--clerk-user-id <id>]
+  python scripts/db_admin.py resync-sequences
+  python scripts/db_admin.py init-schema [--url <postgres_url>]
+  ```
+
+- **`user_provisioning.py`** — CLI utility for user and system account provisioning.
+  ```bash
+  python scripts/user_provisioning.py insert-system
+  python scripts/user_provisioning.py insert-user --email user@example.com --role admin --org-id org_123
+  ```
+
+- **`check_ngrok.py`** — Health check utility to verify ngrok tunnel status and retrieve the active public URL for Clerk webhooks.
+  ```bash
+  python backend/scripts/check_ngrok.py
+  ```
+
+- **`inspect_real_rows.py`** — Database row inspection utility for production/live negotiation sessions.
+  ```bash
+  python backend/scripts/inspect_real_rows.py
+  ```
+
+- **`qa_screenshots.py`** — Playwright dashboard screenshot generator for QA verification.
+  ```bash
+  python scripts/qa_screenshots.py
+  ```
+
+---
+
+## 2. Seed & Data-Generation
+
+- **`seed_demo_data.py`** — Seeds realistic demo negotiation sessions, scenarios, trust reports, and violations without requiring live LLM API calls.
+  ```bash
+  python scripts/seed_demo_data.py
+  ```
+
+- **`seed_ledger_entries.py`** — Generates Ed25519-signed, hash-chained ledger entries for seeded sessions. Run after `seed_demo_data.py`.
+  ```bash
+  python scripts/seed_ledger_entries.py [session_id]
+  ```
+
+- **`run_real_negotiations.py`** — Throttled real-LLM multi-turn negotiation batch runner with rate-limit backoff.
+  ```bash
+  python scripts/run_real_negotiations.py
+  ```
+
+---
+
+## 3. Evaluation & Benchmark Runners (TrustMesh-Bench)
+
+- **`run_manipulation_holdout.py`** — ManipulationDetector adversarial holdout suite. **Invoked by CI (`.github/workflows/manipulation_eval.yml`)**.
+  ```bash
+  python scripts/run_manipulation_holdout.py --limit 8 --no-cache
+  ```
+
+- **`run_benchmark.py`** — Primary negotiation benchmark evaluation suite across policy and commitment detectors.
+  ```bash
+  python scripts/run_benchmark.py
+  ```
+
+- **`run_adversarial_benchmark.py`** — Adversarial scenario benchmark runner testing LLM prompt injection resistance.
+  ```bash
+  python scripts/run_adversarial_benchmark.py
+  ```
+
+- **`compute_calibration_metrics.py`** — Computes Brier score and Expected Calibration Error (ECE) for the manipulation detector.
+  ```bash
+  python scripts/compute_calibration_metrics.py
+  ```
+
+---
+
+## 4. Identity, Security & Crypto
+
+- **`generate_agent_cards.py`** — Generates signed AgentCard JSON specifications for agent identities.
+  ```bash
+  python scripts/generate_agent_cards.py
+  ```
+
+- **`run_agent_card_test.py`** — End-to-end AgentCard signature verification test suite (cited in `docs/PROJECT_REPORT.md`).
+  ```bash
+  python scripts/run_agent_card_test.py
+  ```
+
+- **`tamper_ledger_demo.py`** — Demonstrates tamper detection by mutating a ledger entry and verifying chain invalidation.
+  ```bash
+  python scripts/tamper_ledger_demo.py [session_id]
+  python scripts/tamper_ledger_demo.py [session_id] --restore
+  ```
+
+- **`sweep_ledger_integrity.py`** — Full-database cryptographic hash chain integrity verification sweep.
+  ```bash
+  python backend/scripts/sweep_ledger_integrity.py
+  ```
+
+---
+
+## 5. Machine Learning & Performance Benchmarking
+
+- **`train_deal_outcome_model.py`** — Trains the deal-outcome prediction model (Scikit-Learn Random Forest) on negotiation history.
+  ```bash
+  python scripts/train_deal_outcome_model.py
+  ```
+
+- **`test_multitenant_load.py`** — Concurrent multi-tenant load testing utility for measuring API throughput and tenant isolation under load.
+  ```bash
+  python scripts/test_multitenant_load.py
+  ```
