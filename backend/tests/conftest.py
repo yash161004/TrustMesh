@@ -23,6 +23,36 @@ async def init_test_db():
     session_manager.reset()
     await engine.dispose()
 
+@pytest.fixture(autouse=True)
+def _isolate_filesystem_state(tmp_path):
+    """Isolate per-test filesystem state (agent cards, signing keys, key caches).
+
+    Each test gets its own agent_cards/ and .keys/ directories so that
+    agent cards and Ed25519 keypairs written by one test cannot leak
+    into another.  Also clears the in-memory keypair cache.
+    """
+    from app.identity import agent_card as ac_mod
+    from app.crypto import signing as sig_mod
+
+    cards_dir = tmp_path / "agent_cards"
+    keys_dir = tmp_path / ".keys"
+    cards_dir.mkdir(parents=True, exist_ok=True)
+    keys_dir.mkdir(parents=True, exist_ok=True)
+
+    old_cards_dir = ac_mod.CARDS_DIR
+    old_keys_dir = sig_mod._KEYS_DIR
+    old_keypairs = sig_mod._keypairs
+
+    ac_mod.CARDS_DIR = cards_dir
+    sig_mod._KEYS_DIR = keys_dir
+    sig_mod._keypairs = {}
+
+    yield
+
+    ac_mod.CARDS_DIR = old_cards_dir
+    sig_mod._KEYS_DIR = old_keys_dir
+    sig_mod._keypairs = old_keypairs
+
 @pytest.fixture
 def test_client():
     from fastapi.testclient import TestClient
