@@ -69,6 +69,15 @@ Operational, evaluation, identity/crypto, and data-generation utilities for the 
 
 ## 3. Evaluation & Benchmark Runners (TrustMesh-Bench)
 
+- **`run_trustmesh_bench.py`** — unified entrypoint for the whole suite. Prefer this over calling the individual runners. See [`docs/TRUSTMESH_BENCH.md`](../../docs/TRUSTMESH_BENCH.md).
+  ```bash
+  python scripts/run_trustmesh_bench.py all                 # full suite
+  python scripts/run_trustmesh_bench.py holdout --limit 8   # one benchmark
+  python scripts/run_trustmesh_bench.py all --dry-run       # show commands, no key needed
+  ```
+
+The individual runners it dispatches to:
+
 - **`run_manipulation_holdout.py`** — ManipulationDetector adversarial holdout suite. **Invoked by CI (`.github/workflows/manipulation_eval.yml`)**.
   ```bash
   python scripts/run_manipulation_holdout.py --limit 8 --no-cache
