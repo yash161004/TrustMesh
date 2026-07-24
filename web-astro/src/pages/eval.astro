@@ -2,10 +2,12 @@
 import Layout from '../layouts/Layout.astro';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-// Parse the markdown file
-// Note: the relative path starts from where the Astro build/dev server is running (usually web-astro/)
-const evalFilePath = path.resolve('../docs/EVAL_RESULTS.md');
+// Parse the markdown file relative to this module location
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const evalFilePath = path.resolve(__dirname, '../../../docs/EVAL_RESULTS.md');
+const repoUrl = import.meta.env.PUBLIC_REPO_URL || 'https://github.com/yash161004/TrustMesh';
 let runs = [];
 
 if (fs.existsSync(evalFilePath)) {
@@ -121,28 +123,40 @@ runs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
                 </tr>
               </thead>
               <tbody class="divide-y divide-public-border">
-                {runs.map((run, i) => (
-                  <tr class="hover:bg-public-border/10 transition-colors">
-                    <td class="px-6 py-4 whitespace-nowrap text-public-text-primary">
-                      {run.date}
-                      {i === 0 && <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-trust-green/10 text-trust-green border border-trust-green/20">Latest</span>}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <a href={`https://github.com/Meetpatel427/TrustMesh/commit/${run.sha}`} target="_blank" rel="noopener noreferrer" class="text-trust-green hover:underline font-mono">
-                        {run.sha.substring(0, 7)}
-                      </a>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap font-medium text-public-text-primary">{run.precision}</td>
-                    <td class="px-6 py-4 whitespace-nowrap font-medium text-public-text-primary">{run.recall}</td>
-                    <td class="px-6 py-4 whitespace-nowrap font-medium text-public-text-primary">{run.f1}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-public-text-secondary">{run.disagreement}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-public-text-secondary">
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-public-border/30">
-                        {run.promptVersion}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {runs.map((run, i) => {
+                  const p = parseFloat(run.precision);
+                  const r = parseFloat(run.recall);
+                  const passesGate = !isNaN(p) && !isNaN(r) && p >= 0.95 && r >= 0.95;
+                  return (
+                    <tr class="hover:bg-public-border/10 transition-colors">
+                      <td class="px-6 py-4 whitespace-nowrap text-public-text-primary">
+                        {run.date}
+                        {i === 0 && (
+                          <span class="ml-2 inline-flex items-center gap-1.5">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-trust-green/10 text-trust-green border border-trust-green/20">Latest</span>
+                            <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${passesGate ? 'bg-trust-green/10 text-trust-green border-trust-green/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                              {passesGate ? 'CI Gate: Pass (≥0.95)' : 'CI Gate: Fail (<0.95)'}
+                            </span>
+                          </span>
+                        )}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap">
+                        <a href={`${repoUrl}/commit/${run.sha}`} target="_blank" rel="noopener noreferrer" class="text-trust-green hover:underline font-mono">
+                          {run.sha.substring(0, 7)}
+                        </a>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap font-medium text-public-text-primary">{run.precision}</td>
+                      <td class="px-6 py-4 whitespace-nowrap font-medium text-public-text-primary">{run.recall}</td>
+                      <td class="px-6 py-4 whitespace-nowrap font-medium text-public-text-primary">{run.f1}</td>
+                      <td class="px-6 py-4 whitespace-nowrap text-public-text-secondary">{run.disagreement}</td>
+                      <td class="px-6 py-4 whitespace-nowrap text-public-text-secondary">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-public-border/30">
+                          {run.promptVersion}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

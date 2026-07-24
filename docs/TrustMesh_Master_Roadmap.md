@@ -64,12 +64,12 @@ This is a genuinely strong starting point. The plan below closes the *specific* 
 
 This is the single strongest move available to you — it turns "does it actually work" from an argument into a number that regenerates itself.
 
-> **Status (audited & reconciled 2026-07-24): shipped.** The self-provenancing eval, the CI gate, and the named single-entrypoint packaging (`run_trustmesh_bench.py` + `docs/TRUSTMESH_BENCH.md`) all exist. The only remaining item is the optional public results page (#4).
+> **Status (audited & reconciled 2026-07-24): 3 of 4 done.** The self-provenancing eval, the CI gate, and the public results page (`web-astro/src/pages/eval.astro`) all exist. The remaining item is the single-entrypoint CLI packaging (`run_trustmesh_bench.py` + `docs/TRUSTMESH_BENCH.md`).
 
-- [x] Convert `run_benchmark.py`, `run_manipulation_holdout.py`, `run_adversarial_benchmark.py` from internal dev tools into a named, public-facing artifact: **TrustMesh-Bench**. **Done (`feat/trustmesh-bench-entrypoint`)** — `scripts/run_trustmesh_bench.py` is the single entrypoint (`holdout` / `negotiation` / `adversarial` / `calibration` / `all`, with a key-free `--dry-run`), and `docs/TRUSTMESH_BENCH.md` is the public-facing artifact doc (what each benchmark measures, provenance, CI gate, honest caveats). 9 offline dispatcher tests.
+- [ ] Convert `run_benchmark.py`, `run_manipulation_holdout.py`, `run_adversarial_benchmark.py` from internal dev tools into a named, public-facing artifact: **TrustMesh-Bench**. *(Open — CLI entrypoint packaging pending).*
 - [x] `docs/EVAL_RESULTS.md` regenerated on every run, committed with timestamp + git SHA. **Done** — `run_manipulation_holdout.py` (~L218-245) stamps a UTC timestamp + `git rev-parse HEAD` short SHA and appends a row per run; numbers are never hand-written.
 - [x] Extend CI to run the holdout suite on every PR and fail the build if precision/recall drops below a threshold. **Done** — `.github/workflows/manipulation_eval.yml` runs the holdout with `--fail-below-precision 0.95 --fail-below-recall 0.95` and skips gracefully when `GEMINI_API_KEY` is absent (documented behaviour, not a silent pass).
-- [ ] Optional but strong: a simple public results page on the marketing site — "Precision: X%, Recall: Y%, evaluated on N adversarial scenarios, updated automatically". *(Still open, still optional.)*
+- [x] Optional but strong: a simple public results page on the marketing site — "Precision: X%, Recall: Y%, evaluated on N adversarial scenarios, updated automatically". **Done (`web-astro/src/pages/eval.astro`)** — hardened against CWD-relative path and owner bugs, includes CI gate pass/fail badge.
 
 **Framing for your defense:** your own findings doc already shows precision/recall varying 1.00/1.00 → 0.75/1.00 → 1.00/0.33 across identical runs on the same holdout. That's not a weakness to hide — per the literature review, this is a documented, studied phenomenon in LLM-as-judge systems generally (overconfidence, calibration instability). Point to that literature, show your confidence-interval fix as a direct response to it. "I found a real limitation in my own system and fixed it with a literature-grounded approach" is a stronger engineering-judgment signal than a system with no visible flaws.
 
@@ -136,7 +136,7 @@ Smart contract settlement (testnet only, mock escrow), zero-knowledge reputation
 |---|---|---|
 | 0 | Credibility pass | ✅ Done — scripts consolidated + root cleared, no consensus language, logs archived, secret audit clean |
 | 1 | AgentCard wiring, Postgres, currency registry, calibration | ✅ Done — identity shipped via file-path org-scoping (not the parked DB-backed design) |
-| 2 | TrustMesh-Bench (public eval pipeline) | 🟡 Core done (self-provenancing eval + CI precision/recall gate); remaining = branding as a named artifact + optional public page |
+| 2 | TrustMesh-Bench (public eval pipeline) | 🟡 3 of 4 done (self-provenancing eval + CI gate + public eval page shipped); remaining = named CLI entrypoint packaging |
 | 2.5 | trustmesh-sdk | ✅ Built (`feat/trustmesh-sdk`) — standalone `TrustMeshWatcher` (vendored crypto + backend-parity test), LangChain + OpenAI-format adapters, 31 tests; optional native CrewAI/AutoGen adapters deferred |
 | 3 | Deal-outcome prediction model | 🟡 Pipeline built + CV-evaluated + route-wired; trained artifact deliberately deferred pending data volume |
 | 4 | Fleet anomaly view + cross-session reputation | ✅ Core done — both shipped; remaining = depth/polish (richer detectors, frontend view) |
