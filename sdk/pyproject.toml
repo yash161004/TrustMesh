@@ -18,6 +18,9 @@ test = ["pytest>=7"]
 # Optional framework adapters (trustmesh/adapters/*). The core package does not
 # depend on these; install the extra for the integration you use.
 langchain = ["langchain-core>=0.2"]
+crewai = ["crewai>=0.100"]
+autogen = ["autogen-agentchat>=0.4"]
+
 
 # The crypto primitives are vendored (trustmesh/_primitives.py), so this package
 # is standalone at runtime — its only dependency is `cryptography`. Byte-for-byte

@@ -79,6 +79,43 @@ for turn in handler.turns:
 Install the extra: `pip install "trustmesh-sdk[langchain]"`. Toggle capture with
 `TrustMeshCallbackHandler(watcher, capture_llm=..., capture_agent=...)`.
 
+### CrewAI
+
+`TrustMeshCrewCallback` binds to CrewAI agent steps (`step_callback`) and task completions (`callback`), signing each tool invocation and output:
+
+```python
+from trustmesh import TrustMeshWatcher
+from trustmesh.adapters.crewai import TrustMeshCrewCallback
+
+watcher = TrustMeshWatcher(agent_id="crew-agent", session_id="run-1")
+handler = TrustMeshCrewCallback(watcher)
+
+agent = Agent(..., step_callback=handler.on_step)
+task = Task(..., callback=handler.on_task_finish)
+
+ok, broken_at = handler.verify()
+```
+
+Install the extra: `pip install "trustmesh-sdk[crewai]"`.
+
+### AutoGen
+
+`TrustMeshAutoGenHandler` attaches to AutoGen message hooks (`autogen-agentchat`):
+
+```python
+from trustmesh import TrustMeshWatcher
+from trustmesh.adapters.autogen import TrustMeshAutoGenHandler
+
+watcher = TrustMeshWatcher(agent_id="autogen-agent", session_id="run-1")
+handler = TrustMeshAutoGenHandler(watcher)
+
+agent.register_hook("process_message_before_send", handler.on_message)
+
+ok, broken_at = handler.verify()
+```
+
+Install the extra: `pip install "trustmesh-sdk[autogen]"`.
+
 ### Any framework (OpenAI message format)
 
 `trustmesh.adapters.generic` needs no framework install — it works with anything
