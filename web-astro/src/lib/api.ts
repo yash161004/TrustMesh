@@ -274,7 +274,27 @@ export async function processTurn(
   });
 }
 
+export interface AgentAnomalyItem {
+  agent_id: string;
+  total_sessions: number;
+  violations_count: number;
+  violation_rate: number;
+  average_trust_score: number | null;
+  z_score: number | null;
+  is_anomalous: boolean | null;
+}
+
+export interface FleetAnomalyResponse {
+  agents: AgentAnomalyItem[];
+  note: string | null;
+}
+
+export async function getFleetAnomalies(token: string): Promise<FleetAnomalyResponse> {
+  return authFetch<FleetAnomalyResponse>('/api/v1/fleet/anomalies', token);
+}
+
 export function getWebSocketUrl(sessionId: string, token: string): string {
   const wsBase = API_BASE.replace(/^http/, 'ws');
   return `${wsBase}/api/v1/sessions/${sessionId}/ws?token=${encodeURIComponent(token)}`;
 }
+
