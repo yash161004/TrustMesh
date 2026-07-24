@@ -105,7 +105,7 @@ async def test_clerk_webhook_org_created(mock_verify, test_client, monkeypatch):
         await db.commit()
     
     payload = {
-        "type": "organization.membership.created",
+        "type": "organizationMembership.created",
         "data": {
             "organization": {
                 "id": "org_123",
