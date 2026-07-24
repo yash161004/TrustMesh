@@ -77,7 +77,7 @@ This is the single strongest move available to you — it turns "does it actuall
 
 ## 5. Phase 2.5 — `trustmesh-sdk` (thin wrapper, high narrative value)
 
-> **Status (built 2026-07-24, branch `feat/trustmesh-sdk`): core shipped.** `sdk/trustmesh/` now provides `TrustMeshWatcher` with `audit_and_sign()` (Ed25519-signs each turn + appends to a SHA-256 hash chain) and `verify()`. It reuses the backend's *exact* crypto primitives (tests assert SDK output verifies under the backend's own `verify_chain`/`verify_signature`, so no fork can drift), holds its own in-memory key, and is framework-agnostic via an optional `policy_hook` (no LLM forced). Local-first, no fake hosted `api_key`. 11 passing tests + a runnable example. **Remaining:** standalone packaging (it currently imports backend primitives via `sys.path`), and framework-specific middleware adapters (CrewAI/AutoGen/LangChain) — see below.
+> **Status (built 2026-07-24, branch `feat/trustmesh-sdk`): shipped, standalone, with adapters.** `sdk/trustmesh/` provides `TrustMeshWatcher` with `audit_and_sign()` (Ed25519-signs each turn + appends to a SHA-256 hash chain) and `verify()`. It is **standalone** — crypto primitives are vendored (`_primitives.py`), runtime depends only on `cryptography`, and `test_backend_parity.py` asserts byte-for-byte identity with the backend's reference implementation so the two provably cannot drift. Framework-agnostic via an optional `policy_hook` (no LLM forced); local-first, no fake hosted `api_key`. **Adapters shipped:** a LangChain callback handler (`adapters/langchain.py`, verified end-to-end against real `langchain_core`) and framework-neutral OpenAI-message-format helpers (`adapters/generic.py`, covering raw OpenAI/Anthropic, AutoGen, CrewAI, Swarm). **31 passing tests** + a runnable example. **Remaining (optional):** native CrewAI/AutoGen adapters (deferred — not installed here, so no real integration test; the generic adapter already covers them in practice).
 
 - [ ] Expose the existing audit/sign logic as a clean public interface:
 ```python
@@ -137,12 +137,12 @@ Smart contract settlement (testnet only, mock escrow), zero-knowledge reputation
 | 0 | Credibility pass | ✅ Done — scripts consolidated + root cleared, no consensus language, logs archived, secret audit clean |
 | 1 | AgentCard wiring, Postgres, currency registry, calibration | ✅ Done — identity shipped via file-path org-scoping (not the parked DB-backed design) |
 | 2 | TrustMesh-Bench (public eval pipeline) | 🟡 Core done (self-provenancing eval + CI precision/recall gate); remaining = branding as a named artifact + optional public page |
-| 2.5 | trustmesh-sdk | 🟡 Core built (`feat/trustmesh-sdk`) — `TrustMeshWatcher`, 11 tests, backend-verified crypto; remaining = standalone packaging + framework adapters |
+| 2.5 | trustmesh-sdk | ✅ Built (`feat/trustmesh-sdk`) — standalone `TrustMeshWatcher` (vendored crypto + backend-parity test), LangChain + OpenAI-format adapters, 31 tests; optional native CrewAI/AutoGen adapters deferred |
 | 3 | Deal-outcome prediction model | 🟡 Pipeline built + CV-evaluated + route-wired; trained artifact deliberately deferred pending data volume |
 | 4 | Fleet anomaly view + cross-session reputation | ✅ Core done — both shipped; remaining = depth/polish (richer detectors, frontend view) |
 | — | Tier 3 (speculative) | No fixed date |
 
-**Bottom line after reconciliation:** the roadmap systematically understated completion. As of 2026-07-24 the previously-unstarted **Phase 2.5 (trustmesh-sdk)** core is now built (`feat/trustmesh-sdk`). Everything else is either done or awaiting *data*, not *code*. Highest-leverage remaining work: (a) finish the SDK (standalone packaging + framework adapters), (b) brand/package TrustMesh-Bench, (c) let real session data accumulate to activate the Phase 3 model.
+**Bottom line after reconciliation:** the roadmap systematically understated completion. As of 2026-07-24 the previously-unstarted **Phase 2.5 (trustmesh-sdk)** is built (`feat/trustmesh-sdk`) — standalone, parity-guaranteed, with LangChain + OpenAI-format adapters. Everything else is either done or awaiting *data*, not *code*. Highest-leverage remaining work: (a) brand/package **TrustMesh-Bench** (Phase 2 #1 — the last thin engineering slice), (b) let real session data accumulate to activate the Phase 3 model, (c) optional native CrewAI/AutoGen SDK adapters.
 
 Run each phase item as its own scoped Claude Code session — not one giant session. Explain scope tightly, review the diff, ask Claude Code to explain *why* it made each choice before accepting, and regenerate `docs/EVAL_RESULTS.md` after any change that could affect detection behavior.
 
