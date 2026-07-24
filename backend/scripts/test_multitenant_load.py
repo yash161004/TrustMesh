@@ -56,29 +56,38 @@ else:
 
 SESSIONS_PER_ORG = int(os.environ.get("LOAD_TEST_SESSIONS_PER_ORG", "5"))
 CONCURRENCY_LIMIT = int(os.environ.get("LOAD_TEST_CONCURRENCY", "10"))
+# Number of negotiation turns requested per session (see turn_payload below).
+# The buyer's initial offer plus these turns are each persisted + laddered into
+# the hash-chained ledger, so a healthy session yields (1 + turns) entries at most.
+MAX_TURNS = int(os.environ.get("LOAD_TEST_MAX_TURNS", "4"))
 
 async def run_session(client: httpx.AsyncClient, org_id: str, session_index: int) -> dict:
     headers = {"Authorization": f"Bearer test-user-{org_id}"}
-    
-    # 1. Create Session with mock provider to avoid LLM rate limits
+
+    # 1. Create Session with mock provider to avoid LLM rate limits.
+    #    AgentCards are globally-unique, org-owned identities (one card file per
+    #    agent_id), so each org must use its own agent_ids — reusing a bare
+    #    "buyer-N" across orgs would make them fight over the same card file.
+    buyer_agent_id = f"buyer-{org_id}-{session_index}"
+    seller_agent_id = f"seller-{org_id}-{session_index}"
     create_payload = {
-        "buyer_agent_id": f"buyer-{session_index}",
-        "seller_agent_id": f"seller-{session_index}",
+        "buyer_agent_id": buyer_agent_id,
+        "seller_agent_id": seller_agent_id,
         "provider": "mock",
         "context": {"product": "Enterprise Software", "volume": "100 licenses"}
     }
     resp = await client.post(f"{BASE_URL}/sessions", json=create_payload, headers=headers)
     resp.raise_for_status()
     session_id = resp.json()["session_id"]
-    
-    # 2. Trigger a single Turn Request which will process up to 4 turns in the background
+
+    # 2. Trigger a single Turn Request which will process up to MAX_TURNS turns in the background
     turn_payload = {
-        "max_turns": 4,
+        "max_turns": MAX_TURNS,
         "context": {"priority": "speed"}
     }
     resp = await client.post(f"{BASE_URL}/sessions/{session_id}/turn", json=turn_payload, headers=headers)
     resp.raise_for_status()
-    
+
     logging.info(f"[{org_id}] Triggered turn for session {session_id}")
     return {"session_id": session_id, "org_id": org_id}
 
@@ -86,22 +95,62 @@ async def verify_ledger(client: httpx.AsyncClient, session_info: dict):
     session_id = session_info["session_id"]
     org_id = session_info["org_id"]
     headers = {"Authorization": f"Bearer test-user-{org_id}"}
-    
+
+    # A single turn request runs the buyer's initial offer plus up to MAX_TURNS
+    # negotiation turns in the background, each of which is persisted as a message
+    # AND laddered into the hash-chained ledger. A correct multi-turn session must
+    # therefore produce MORE than one ledger entry — asserting only `> 0` (as this
+    # harness used to) silently passed even when every turn after the initial offer
+    # crashed and only the lone opening offer was ever recorded.
+    min_expected = 2                 # initial offer + at least one negotiation turn
+    max_expected = MAX_TURNS + 1     # initial offer + all requested turns
+
     ledger_entries = []
     ledger_data = {}
-    for _ in range(20):
+    messages = []
+    # Turns are throttled server-side (~6s each), so poll generously until the
+    # ledger has caught up to the persisted messages and stopped growing.
+    for _ in range(60):
         resp = await client.get(f"{BASE_URL}/sessions/{session_id}/ledger", headers=headers)
         resp.raise_for_status()
         ledger_data = resp.json()
         ledger_entries = ledger_data.get("entries", [])
-        if len(ledger_entries) > 0:
+
+        msg_resp = await client.get(f"{BASE_URL}/sessions/{session_id}/messages", headers=headers)
+        msg_resp.raise_for_status()
+        messages = msg_resp.json()
+
+        # Ready once every persisted message has a matching ledger entry and the
+        # negotiation has produced more than just the opening offer.
+        if len(messages) >= min_expected and len(ledger_entries) == len(messages):
             break
-        await asyncio.sleep(0.5)
-        
+        await asyncio.sleep(1.0)
+
     chain_valid = ledger_data.get("chain_valid", False)
-    
-    if len(ledger_entries) == 0:
-        logging.error(f"[{org_id}] Expected ledger entries, got 0 for {session_id}")
+    n_entries = len(ledger_entries)
+    n_messages = len(messages)
+
+    if n_entries < min_expected:
+        logging.error(
+            f"[{org_id}] Expected at least {min_expected} ledger entries "
+            f"(initial offer + negotiation turns), got {n_entries} for {session_id}. "
+            f"This indicates turns after the initial offer failed to record."
+        )
+        return False
+
+    if n_entries > max_expected:
+        logging.error(
+            f"[{org_id}] Expected at most {max_expected} ledger entries for {session_id}, "
+            f"got {n_entries} (max_turns={MAX_TURNS})."
+        )
+        return False
+
+    # Every persisted message must be laddered into the ledger (no silent drops).
+    if n_entries != n_messages:
+        logging.error(
+            f"[{org_id}] Ledger/message mismatch for {session_id}: "
+            f"{n_entries} ledger entries vs {n_messages} messages."
+        )
         return False
 
     # Use the server-side chain verification (verify_chain in crypto/ledger.py)
@@ -109,8 +158,11 @@ async def verify_ledger(client: httpx.AsyncClient, session_info: dict):
         broken_at = ledger_data.get("broken_at")
         logging.error(f"[{org_id}] Ledger chain invalid for {session_id}, broken at entry {broken_at}")
         return False
-        
-    logging.info(f"[{org_id}] Ledger verified: chain_valid=True, {len(ledger_entries)} entries for {session_id}")
+
+    logging.info(
+        f"[{org_id}] Ledger verified: chain_valid=True, {n_entries} entries "
+        f"({n_messages} messages) for {session_id}"
+    )
     return True
 
 async def check_isolation(client: httpx.AsyncClient, session_info: dict):
