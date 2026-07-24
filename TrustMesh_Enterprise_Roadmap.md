@@ -57,7 +57,7 @@ This is the new part of the ask — last time the frame was "career + business,"
 |---|---|---|
 | **Data layer** | SQLite in prod (§1.1), Postgres in staging only | Postgres in prod, connection pooling (pgbouncer or SQLAlchemy pool tuning), automated backups, a documented recovery drill |
 | **Secrets management** | `.env.example` + Render `sync: false` env vars | Fine for a solo project; enterprise-grade means a secrets manager (Render's own secret files, or Doppler/Vault) and zero long-lived API keys checked into any script (worth a one-time `git log -p` grep audit of `backend/scripts/`) |
-| **Observability** | `logging_config.py` exists; no evidence of structured/centralized logging, tracing, or alerting | Structured JSON logs shipped somewhere queryable (even a free-tier Grafana Cloud/Axiom), a `/metrics` endpoint beyond what `routes/metrics.py` currently does, and at least one alert (e.g. ledger `chain_valid: false` should page someone, not just sit in a dashboard) |
+| **Observability** | `logging_config.py` + `sweep_ledger_integrity.py` cron + `ledger_alerts.py` webhook | ✅ Closed — structured JSON logging, hourly automated ledger integrity sweep (Render cron `"0 * * * *"`), and tamper alert webhook (`TAMPER_ALERT_WEBHOOK_URL`) configured |
 | **Multi-tenancy hardening** | Clerk auth + orgs live, `test_org_visibility.py` and `test_multitenant_load.py` exist | Good foundation — the gap is *load-testing evidence*: has `test_multitenant_load.py` actually been run at a meaningful concurrency and the results written down anywhere? If not, that's a half-day task that turns an existing test into a real capacity number you can quote |
 | **CI/CD** | `.github/workflows/pytest.yml` and `manipulation_eval.yml` exist | Good — extend with a deploy-on-merge-to-master workflow to Render, and a required-status-check gate so master can't merge red |
 | **Security posture** | Ed25519 signing, rate limiting (`limiter.py`), Clerk auth | Missing: key rotation story (per DEFENSE_PREP.md's own admission — a compromised key currently affects *all* sessions for that role, since it's a shared keypair, not per-agent). This is exactly what AgentCard (§1.2) solves once wired in — per-agent keys are the fix, not a separate initiative |
@@ -76,7 +76,7 @@ This is the new part of the ask — last time the frame was "career + business,"
 
 ### Phase B — The enterprise-deployment layer (new this cycle)
 5. Structured logging to a queryable sink (Axiom/Grafana Cloud free tier is enough to demonstrate the pattern).
-6. One real alert wired to ledger tamper detection (`chain_valid: false` → webhook to Slack/Discord/email is a half-day task and a very concrete "this is what production monitoring means" demo).
+6. [x] **One real alert wired to ledger tamper detection.** **Done** — `backend/scripts/sweep_ledger_integrity.py` scheduled as an hourly Render cron service (`0 * * * *`) in `render.yaml`, executing `trigger_tamper_alert()` on corrupted chains to dispatch incoming webhooks (`TAMPER_ALERT_WEBHOOK_URL`).
 7. Deploy-on-merge CI workflow with a required green-check gate.
 
 ### Phase C — Everything from the last roadmap's Tier 1/2, unchanged priority

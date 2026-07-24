@@ -73,3 +73,5 @@ The `.env` file is listed in `.gitignore` and is **not** present in the current 
 1. **Rotate both Clerk `sk_test_` keys** found in git history via the Clerk dashboard. Even though they are test-mode keys, best practice is to rotate any key that has ever been exposed.
 2. **Add pre-commit hook** (e.g., `pre-commit` with `detect-secrets` or `truffleHog`) to prevent future credential leaks.
 3. **Verify frontend build pipeline** does not inline secrets into committed artifacts. Use Vite's `import.meta.env.VITE_*` convention (public prefix) for frontend-visible variables; never inline `CLERK_SECRET_KEY` into client bundles.
+4. **Alerting webhook environment variable**: `TAMPER_ALERT_WEBHOOK_URL` is documented in `backend/.env.example` and wired to Render cron service in `render.yaml` as an uncommitted secret (`sync: false`).
+
