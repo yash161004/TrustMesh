@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .db import close_db, init_db
 from .router import api_router
+from .routes.eval_results import router as eval_results_router
 from .logging_config import setup_logging
 
 setup_logging()
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     # Routers
     # ------------------------------------------------------------------
     app.include_router(api_router, prefix="/api/v1")
+    app.include_router(eval_results_router, prefix="/api/v1/eval-results")
 
     # ------------------------------------------------------------------
     # Root redirect
