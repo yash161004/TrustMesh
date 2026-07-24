@@ -16,11 +16,20 @@ async def init_test_db():
     app.db._db_initialised = True
     
     from app.session_manager import session_manager
+    from app.limiter import limiter
     session_manager.reset()
     session_manager._initialised = True
+    try:
+        limiter.reset()
+    except Exception:
+        pass
     
     yield
     session_manager.reset()
+    try:
+        limiter.reset()
+    except Exception:
+        pass
     await engine.dispose()
 
 @pytest.fixture(autouse=True)
