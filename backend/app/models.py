@@ -512,30 +512,37 @@ class NegotiationScenario(BaseModel):
                 )
         return self
 
+    @computed_field
     @property
     def product_name(self) -> str:
         return self.line_items[0].product_name if self.line_items else ""
 
+    @computed_field
     @property
     def quantity(self) -> int:
         return self.line_items[0].quantity if self.line_items else 1
 
+    @computed_field
     @property
     def market_reference_price(self) -> float:
         return self.line_items[0].market_reference_price if self.line_items else 0.0
 
+    @computed_field
     @property
     def buyer_target_price(self) -> float:
         return self.line_items[0].buyer_target_price if self.line_items else 0.0
 
+    @computed_field
     @property
     def buyer_budget_cap(self) -> float:
         return self.line_items[0].buyer_budget_cap if self.line_items else 0.0
 
+    @computed_field
     @property
     def seller_asking_price(self) -> float:
         return self.line_items[0].seller_asking_price if self.line_items else 0.0
 
+    @computed_field
     @property
     def seller_floor_price(self) -> float:
         return self.line_items[0].seller_floor_price if self.line_items else 0.0
