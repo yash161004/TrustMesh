@@ -9,11 +9,13 @@ It is the same idea as the TrustMesh backend, packaged as reusable middleware:
 Ed25519-sign each message, append it to an append-only SHA-256 hash chain,
 verify the chain later.
 
-## Install / use (from a repo checkout)
+## Install / use
+
+The SDK is standalone — its only runtime dependency is `cryptography`. It does
+not need the TrustMesh backend on the path to sign, chain, or verify.
 
 ```bash
-# The SDK currently reuses the TrustMesh backend's crypto primitives, so it is
-# used from within this repository. `backend/` is added to sys.path automatically.
+pip install ./sdk          # or: pip install "trustmesh-sdk[langchain]"
 python sdk/examples/minimal_agent_loop.py
 ```
 
@@ -49,24 +51,70 @@ Flags are independent of integrity: a flagged turn is still signed and chained,
 and flags never break `verify()`. Auditing tells you *what was said*; the chain
 proves *that it was not changed afterwards*.
 
+## Framework adapters
+
+Adapters live in `trustmesh/adapters/` and are **optional** — the core package
+never imports a framework. Import the one you need explicitly.
+
+### LangChain
+
+`TrustMeshCallbackHandler` attaches to any LangChain runnable and signs every
+LLM generation, agent action, and agent finish (the last is where unauthorized
+tool calls / commitments surface):
+
+```python
+from trustmesh import TrustMeshWatcher
+from trustmesh.adapters.langchain import TrustMeshCallbackHandler
+
+watcher = TrustMeshWatcher(agent_id="my-agent", session_id="run-1")
+handler = TrustMeshCallbackHandler(watcher)
+
+result = my_chain.invoke(inputs, config={"callbacks": [handler]})
+
+ok, broken_at = handler.verify()      # prove the run was not altered
+for turn in handler.turns:
+    print(turn.sequence, turn.message["source"], turn.is_flagged)
+```
+
+Install the extra: `pip install "trustmesh-sdk[langchain]"`. Toggle capture with
+`TrustMeshCallbackHandler(watcher, capture_llm=..., capture_agent=...)`.
+
+### Any framework (OpenAI message format)
+
+`trustmesh.adapters.generic` needs no framework install — it works with anything
+that speaks the OpenAI chat-message shape (`{"role", "content"}`), which covers
+raw OpenAI/Anthropic calls, AutoGen, CrewAI, and OpenAI Swarm:
+
+```python
+from trustmesh.adapters.generic import audit_messages, audit_chat_completion, audited_step
+
+# audit an existing message list (optionally only the assistant's turns)
+audit_messages(watcher, messages, roles={"assistant"})
+
+# audit an OpenAI-style ChatCompletion (dict or SDK object)
+audit_chat_completion(watcher, response)
+
+# or wrap any step function transparently
+@audited_step(watcher, extract=lambda r: {"role": "assistant", "text": r})
+def agent_reply(prompt): ...
+```
+
 ## What it is — and is not (honest scope)
 
 - **Local-first.** There is no hosted service and therefore no `api_key`. This
   is designed to *integrate with* any agent framework (CrewAI, AutoGen,
   LangChain, OpenAI Swarm, or a plain function), not to be a client for a remote
   API that does not exist yet.
-- **Same crypto as the backend, not a fork.** The signing and hash-chain
-  primitives are imported directly from the TrustMesh backend
-  (`trustmesh/_crypto.py`). The test suite asserts that SDK-produced records
-  verify under the backend's *own* `verify_chain` / `verify_signature`, so there
-  is no risk of the two drifting apart.
+- **Same crypto as the backend, guaranteed — not a fork that drifts.** The
+  signing and hash-chain primitives are vendored (`trustmesh/_primitives.py`) so
+  the SDK is standalone, but `tests/test_backend_parity.py` imports the backend's
+  *own* reference implementation and asserts byte-for-byte identical output
+  (canonical JSON, entry hashes) plus cross-verification of signatures. If the
+  backend's crypto ever changes, that test fails — so the two provably cannot
+  diverge silently.
 - **Self-contained identity.** The watcher holds its own in-memory Ed25519 key
   and never touches the backend's on-disk key store or database. Pass an
   existing `private_key` to reuse a stable identity across runs.
-- **Not yet a standalone distribution.** Because it imports the backend
-  primitives, it is used from a repo checkout today. Packaging it fully
-  standalone — vendoring the primitives, or extracting a shared
-  `trustmesh-core` both sides depend on — is deliberate follow-on work.
 
 ## Run the tests
 
@@ -76,4 +124,5 @@ cd sdk && python -m pytest tests/ -q
 
 The suite covers signing/verification, multi-turn chain integrity, tamper and
 reorder detection, cross-compatibility with the backend verifier, policy-hook
-flagging, and stable-identity reuse.
+flagging, stable-identity reuse, and the LangChain adapter (which skips cleanly
+if `langchain-core` is not installed).
