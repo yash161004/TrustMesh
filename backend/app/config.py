@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///./trustmesh.db"
 
+    # Agent Cards Directory
+    agent_card_dir: str = ""
+
     # Clerk Authentication
     clerk_jwks_url: str = ""
     clerk_issuer: str = ""
