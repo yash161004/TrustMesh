@@ -14,6 +14,7 @@ No live API calls needed — all data is written directly to SQLite.
 from __future__ import annotations
 
 import json
+import random
 import sys
 import os
 from datetime import datetime, timezone, timedelta
@@ -26,7 +27,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base, SessionRecord, MessageRecord, LedgerEntryRecord, TrustReportRecord
-from app.models import DEFAULT_SCENARIO, LineItem, ProposedItem
+from app.models import DEFAULT_SCENARIO, NegotiationScenario, LineItem, ProposedItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -153,6 +154,177 @@ SCENARIO_MANIPULATION = DEFAULT_SCENARIO.model_copy(update={
         )
     ]
 })
+
+# ---------------------------------------------------------------------------
+# Programmatic batch generator — used when --seed-n <N> is passed
+# ---------------------------------------------------------------------------
+
+_SEED_PRODUCTS = [
+    ("SKU-A01", "USB-C Docking Station",  85.0,  70.0,  95.0,  120.0,  75.0),
+    ("SKU-A02", "Noise-Cancelling Headset", 150.0, 130.0, 165.0, 200.0, 125.0),
+    ("SKU-A03", "Portable SSD 2TB",        80.0,  65.0,  85.0,  110.0,  60.0),
+    ("SKU-A04", "27-inch IPS Monitor",     220.0, 190.0, 240.0, 300.0, 185.0),
+    ("SKU-A05", "Mechanical Switch Pad",    45.0,  35.0,  50.0,   65.0,  32.0),
+    ("SKU-A06", "WiFi 6 Access Point",     180.0, 150.0, 190.0,  240.0, 145.0),
+    ("SKU-A07", "Smart UPS 1500VA",        280.0, 240.0, 300.0,  360.0, 230.0),
+    ("SKU-A08", "Adjustable Monitor Arm",   65.0,  50.0,  70.0,   90.0,  48.0),
+    ("SKU-A09", "Conference Mic Array",    200.0, 170.0, 215.0,  270.0, 165.0),
+    ("SKU-A10", "KVM Switch 4-port",       120.0, 100.0, 130.0,  160.0,  95.0),
+    ("SKU-B01", "24-port PoE Switch",      350.0, 300.0, 370.0,  450.0, 290.0),
+    ("SKU-B02", "NVMe Enclosure USB4",      70.0,  55.0,  75.0,   95.0,  52.0),
+    ("SKU-B03", "HDMI 2.1 Capture Card",   130.0, 110.0, 140.0,  175.0, 105.0),
+    ("SKU-B04", "Thunderbolt 4 Hub",       160.0, 140.0, 170.0,  210.0, 135.0),
+    ("SKU-B05", "Webcam 4K",               100.0,  85.0, 105.0,  140.0,  80.0),
+    ("SKU-B06", "Raspberry Pi 5 Kit",       95.0,  80.0, 100.0,  130.0,  75.0),
+    ("SKU-B07", "Cable Management Kit",     25.0,  18.0,  30.0,   40.0,  16.0),
+    ("SKU-B08", "Desk Cable Tray",          35.0,  28.0,  38.0,   50.0,  25.0),
+    ("SKU-B09", "GPU Compute Server",     4500.0, 3800.0, 4800.0, 5800.0, 3600.0),
+    ("SKU-B10", "10GbE NIC Dual Port",     180.0, 150.0, 190.0,  240.0, 145.0),
+    ("SKU-C01", "Fiber Transceiver SFP+",   45.0,  35.0,  50.0,   65.0,  32.0),
+    ("SKU-C02", "Patch Panel 48-port",      55.0,  45.0,  60.0,   80.0,  42.0),
+    ("SKU-C03", "Server Rack 42U",         600.0, 500.0, 650.0,  800.0, 480.0),
+    ("SKU-C04", "PDU Switched 30A",        250.0, 210.0, 270.0,  330.0, 200.0),
+    ("SKU-C05", "Temp/Humidity Sensor",     30.0,  22.0,  35.0,   48.0,  20.0),
+    ("SKU-C06", "Smart Door Lock",         120.0, 100.0, 130.0,  160.0,  95.0),
+    ("SKU-C07", "Mini PC 16GB",            350.0, 300.0, 370.0,  450.0, 290.0),
+    ("SKU-C08", "Portable Projector",      250.0, 210.0, 270.0,  330.0, 200.0),
+    ("SKU-C09", "Touchscreen kiosk 15in",  800.0, 680.0, 850.0, 1050.0, 650.0),
+    ("SKU-C10", "RFID Badge Scanner",       90.0,  75.0,  95.0,  120.0,  72.0),
+    ("SKU-D01", "E-Ink Shelf Label",        40.0,  32.0,  45.0,   55.0,  30.0),
+    ("SKU-D02", "Biometric Fingerprint",   150.0, 125.0, 160.0,  200.0, 120.0),
+    ("SKU-D03", "Visitor Badge Printer",   400.0, 340.0, 420.0,  520.0, 330.0),
+    ("SKU-D04", "NVR Camera System 8ch",   550.0, 470.0, 580.0,  720.0, 460.0),
+    ("SKU-D05", "PTZ Conference Camera",   900.0, 770.0, 950.0, 1200.0, 750.0),
+    ("SKU-D06", "Digital Signage 43in",    700.0, 600.0, 750.0,  920.0, 580.0),
+    ("SKU-D07", "Video Door Intercom",     200.0, 170.0, 215.0,  270.0, 165.0),
+    ("SKU-D08", "Wearable Badge Reader",   180.0, 150.0, 190.0,  240.0, 145.0),
+    ("SKU-D09", "Edge AI Inference Box",  1200.0, 1000.0, 1280.0, 1600.0, 980.0),
+    ("SKU-D10", "UPS Battery Pack 500W",   200.0, 170.0, 215.0,  270.0, 165.0),
+]
+
+
+def _make_line_item(sku: str, name: str, ref: float, b_target: float,
+                     b_cap: float, s_ask: float, s_floor: float) -> LineItem:
+    return LineItem(
+        sku=sku, product_name=name, quantity=10, unit="units",
+        market_reference_price=ref,
+        buyer_target_price=b_target,
+        buyer_budget_cap=b_cap,
+        seller_asking_price=s_ask,
+        seller_floor_price=s_floor,
+    )
+
+
+def _scenario_from_product(sku: str, name: str, ref, b_tgt, b_cap, s_ask, s_floor):
+    return NegotiationScenario(
+        currency="USD",
+        delivery_preference_days=14,
+        standard_delivery_days=30,
+        line_items=[_make_line_item(sku, name, ref, b_tgt, b_cap, s_ask, s_floor)],
+    )
+
+
+def _generate_message_batch(
+    session_id: str, scenario: NegotiationScenario,
+    outcome: str, start_turn: int = 1,
+) -> list[MessageRecord]:
+    """Generate 4-7 messages that either converge to DEAL or diverge to NO_DEAL."""
+    line_item = scenario.line_items[0]
+    ref = line_item.market_reference_price
+    b_target = line_item.buyer_target_price
+    b_cap = line_item.buyer_budget_cap
+    s_ask = line_item.seller_asking_price
+    s_floor = line_item.seller_floor_price
+
+    buyer_id = f"buyer-seed-{session_id[:8]}"
+    seller_id = f"seller-seed-{session_id[:8]}"
+
+    is_deal = outcome == "DEAL"
+
+    if is_deal:
+        n_turns = random.randint(4, 6)
+        mid = (b_target + s_ask) / 2.0
+        b_prices = [b_target, b_target + (mid - b_target) * 0.4,
+                    b_target + (mid - b_target) * 0.7, mid]
+        s_prices = [s_ask, s_ask - (s_ask - mid) * 0.3,
+                    s_ask - (s_ask - mid) * 0.6, mid]
+    else:
+        n_turns = random.randint(5, 7)
+        b_prices = [b_target, b_target + (b_cap - b_target) * 0.3,
+                    b_target + (b_cap - b_target) * 0.5,
+                    b_target + (b_cap - b_target) * 0.7,
+                    b_cap, b_cap * 1.05]
+        s_prices = [s_ask, s_ask - (s_ask - s_floor) * 0.2,
+                    s_ask - (s_ask - s_floor) * 0.4,
+                    s_ask - (s_ask - s_floor) * 0.5,
+                    s_ask - (s_ask - s_floor) * 0.6,
+                    s_floor]
+
+    messages = []
+    price = line_item.buyer_target_price
+    for turn in range(start_turn, start_turn + n_turns):
+        sender = buyer_id if turn % 2 == 1 else seller_id
+        price = b_prices[min(turn - start_turn, len(b_prices) - 1)] if sender == buyer_id \
+                else s_prices[min(turn - start_turn, len(s_prices) - 1)]
+        msg_type = "OFFER" if turn == start_turn else \
+                   ("ACCEPT" if is_deal and turn == start_turn + n_turns - 1 and sender == seller_id
+                    else "REJECT" if not is_deal and turn == start_turn + n_turns - 1 and sender == buyer_id
+                    else "COUNTER_OFFER")
+        proposed = [ProposedItem(sku=line_item.sku, price=round(price, 2), quantity=line_item.quantity)]
+        notes = None
+        if "ACCEPT" in msg_type:
+            notes = "Agreed at this price."
+        elif "REJECT" in msg_type:
+            notes = "Cannot accept — price is outside acceptable range."
+        messages.append(MessageRecord(
+            session_id=session_id,
+            turn_number=turn,
+            sender=sender,
+            message_type=msg_type,
+            proposed_items_json=json.dumps([p.model_dump() for p in proposed]),
+            delivery_terms="Net-30, FOB destination",
+            timestamp=_ts(turn),
+            notes=notes,
+        ))
+    return messages
+
+
+def generate_sessions_batch(n: int = 40) -> list[tuple[SessionRecord, list[MessageRecord]]]:
+    """Generate N sessions from the product catalog with varied outcomes."""
+    random.seed(42)
+    sessions = []
+    products = list(_SEED_PRODUCTS)
+    random.shuffle(products)
+    half = n // 2
+
+    for i in range(n):
+        sku, name, ref, b_tgt, b_cap, s_ask, s_floor = products[i % len(products)]
+        scenario = _scenario_from_product(sku, name, ref, b_tgt, b_cap, s_ask, s_floor)
+        is_deal = i < half
+        outcome = "DEAL" if is_deal else "NO_DEAL"
+        final_price = round((b_tgt + s_ask) / 2.0, 2) if is_deal else None
+
+        buyer_id = f"buyer-seed-{uuid4().hex[:8]}"
+        seller_id = f"seller-seed-{uuid4().hex[:8]}"
+        session_id = str(uuid4())
+
+        session = SessionRecord(
+            id=session_id,
+            buyer_agent_id=buyer_id,
+            seller_agent_id=seller_id,
+            status="COMPLETED",
+            created_at=_ts(0),
+            final_price=final_price,
+            outcome=outcome,
+            scenario_json=scenario.model_dump_json(),
+            data_source="real_llm_seed",
+        )
+
+        messages = _generate_message_batch(session_id, scenario, outcome)
+        sessions.append((session, messages))
+
+    return sessions
+
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +506,11 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
                 ))
 
             # Deserialize scenario from the session record
-            scenario = NegotiationScenario.model_validate_json(session_record.scenario_json)
+            try:
+                scenario = NegotiationScenario.model_validate_json(session_record.scenario_json)
+            except Exception:
+                print(f"  ! Skipping trust eval for {session_record.id[:8]} — unparseable scenario_json")
+                continue
 
             # Get base scores for agents if available
             buyer_base, seller_base = 100.0, 100.0
@@ -359,7 +535,13 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
                 seller_trust_score=seller_base / 100.0,
             ))
 
-            # Persist the report
+            # Persist the report (skip if already exists — idempotent)
+            existing = db.execute(
+                select(TrustReportRecord).where(TrustReportRecord.session_id == session_record.id)
+            ).scalar_one_or_none()
+            if existing is not None:
+                print(f"  ! Trust report already exists for {session_record.id[:8]} — skipping")
+                continue
             report_json = report.model_dump_json()
             record = TrustReportRecord(
                 session_id=session_record.id,
@@ -383,13 +565,21 @@ def _precompute_trust(sessions: list[tuple[SessionRecord, list[MessageRecord]]])
 # ---------------------------------------------------------------------------
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Seed TrustMesh demo data")
+    parser.add_argument("--force", action="store_true",
+                        help="Skip the 'already seeded' guard and append data")
+    parser.add_argument("--seed-n", type=int, default=0,
+                        help="Generate N programmatic extra sessions (data_source=real_llm_seed)")
+    args = parser.parse_args()
+
     # Use DATABASE_URL from env if set (Docker), otherwise default local path
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         db_path = os.path.join(os.path.dirname(__file__), "..", "trustmesh.db")
         db_url = f"sqlite:///{os.path.abspath(db_path)}"
     else:
-        db_url = db_url.replace("+aiosqlite", "")
+        db_url = db_url.replace("+aiosqlite", "").replace("+asyncpg", "")
     engine = create_engine(db_url, echo=False)
 
     # Create tables if they don't exist
@@ -401,12 +591,15 @@ def main():
     from datetime import datetime, timezone
     
     with Session(engine) as db:
-        # Check if data already exists
         from sqlalchemy import func
-        count = db.query(func.count(SessionRecord.id)).scalar()
-        if count and count > 0:
-            print(f"Database already has {count} session(s). Skipping seed.")
-            return
+
+        if not args.force:
+            count = db.query(func.count(SessionRecord.id)).scalar()
+            if count and count > 0:
+                print(f"Database already has {count} session(s). Use --force to append.")
+                if args.seed_n:
+                    print(f"--seed-n={args.seed_n} requires --force; skipping batch generate.")
+                return
 
         # Check if identities already seeded (backend init_db does it too)
         existing_ids = {
@@ -446,20 +639,37 @@ def main():
             db.add_all(identities)
             db.commit()
 
-        for session_record, messages in sessions:
+        # Insert manual demo sessions
+    for session_record, messages in sessions:
+        db.add(session_record)
+        for msg in messages:
+            db.add(msg)
+        print(f"  + Session {session_record.id[:8]}\u2026 "
+              f"({len(messages)} messages, outcome={session_record.outcome})")
+
+    # Insert batch training sessions (generated first so they survive partial failures)
+    batch_sessions = []
+    if args.seed_n > 0:
+        print(f"\nGenerating {args.seed_n} programmatic seed sessions...")
+        batch_sessions = generate_sessions_batch(args.seed_n)
+        for session_record, messages in batch_sessions:
             db.add(session_record)
             for msg in messages:
                 db.add(msg)
-            print(f"  + Session {session_record.id[:8]}\u2026 "
+            print(f"  + Batch Session {session_record.id[:8]}\u2026 "
                   f"({len(messages)} messages, outcome={session_record.outcome})")
 
-        db.commit()
+    db.commit()
 
-    # Pre-compute trust evaluations for all seeded sessions
-    _precompute_trust(sessions)
+    # Pre-compute trust evaluations (best-effort — skips sessions with existing reports or parse errors)
+    if sessions or batch_sessions:
+        try:
+            _precompute_trust(sessions + batch_sessions)
+        except Exception as exc:
+            print(f"  ! Trust precompute skipped ({exc}); the training script uses neutral defaults when trust reports are absent.")
 
-    print(f"\nSeeded {len(sessions)} sessions with pre-computed trust data.")
-    print("Dashboard will show trust scores instantly — no live LLM calls needed.")
+    total = len(sessions) + len(batch_sessions)
+    print(f"\nSeeded {total} sessions.")
 
 
 if __name__ == "__main__":
