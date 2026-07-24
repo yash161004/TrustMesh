@@ -15,6 +15,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# Optional framework adapters (trustmesh/adapters/*). The core package does not
+# depend on these; install the extra for the integration you use.
+langchain = ["langchain-core>=0.2"]
 
 # NOTE: the crypto primitives are currently imported from the sibling
 # `backend/` package (see trustmesh/_crypto.py). A fully standalone

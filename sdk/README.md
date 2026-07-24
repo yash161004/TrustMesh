@@ -49,6 +49,34 @@ Flags are independent of integrity: a flagged turn is still signed and chained,
 and flags never break `verify()`. Auditing tells you *what was said*; the chain
 proves *that it was not changed afterwards*.
 
+## Framework adapters
+
+Adapters live in `trustmesh/adapters/` and are **optional** — the core package
+never imports a framework. Import the one you need explicitly.
+
+### LangChain
+
+`TrustMeshCallbackHandler` attaches to any LangChain runnable and signs every
+LLM generation, agent action, and agent finish (the last is where unauthorized
+tool calls / commitments surface):
+
+```python
+from trustmesh import TrustMeshWatcher
+from trustmesh.adapters.langchain import TrustMeshCallbackHandler
+
+watcher = TrustMeshWatcher(agent_id="my-agent", session_id="run-1")
+handler = TrustMeshCallbackHandler(watcher)
+
+result = my_chain.invoke(inputs, config={"callbacks": [handler]})
+
+ok, broken_at = handler.verify()      # prove the run was not altered
+for turn in handler.turns:
+    print(turn.sequence, turn.message["source"], turn.is_flagged)
+```
+
+Install the extra: `pip install "trustmesh-sdk[langchain]"`. Toggle capture with
+`TrustMeshCallbackHandler(watcher, capture_llm=..., capture_agent=...)`.
+
 ## What it is — and is not (honest scope)
 
 - **Local-first.** There is no hosted service and therefore no `api_key`. This
@@ -76,4 +104,5 @@ cd sdk && python -m pytest tests/ -q
 
 The suite covers signing/verification, multi-turn chain integrity, tamper and
 reorder detection, cross-compatibility with the backend verifier, policy-hook
-flagging, and stable-identity reuse.
+flagging, stable-identity reuse, and the LangChain adapter (which skips cleanly
+if `langchain-core` is not installed).
