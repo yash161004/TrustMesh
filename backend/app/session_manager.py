@@ -532,14 +532,21 @@ class SessionManager:
         public_key_b64 = None
         if role and msg.sender:
             try:
-                get_or_create_agent_card(
-                    agent_id=msg.sender,
-                    role=role,
-                    org_id=org_id,
-                    owner_user_id=user_id,
-                )
+                c_path = card_file_path(msg.sender, org_id)
+                if not c_path.exists():
+                    fallback_path = card_file_path(msg.sender)
+                    if fallback_path.exists():
+                        c_path = fallback_path
+                    else:
+                        card, _ = get_or_create_agent_card(
+                            agent_id=msg.sender,
+                            role=role,
+                            org_id=org_id,
+                            owner_user_id=user_id,
+                        )
+                        c_path = card_file_path(card.agent_id, card.org_id)
+
                 # Enforce AgentCard verification and org-tenancy check at message time
-                c_path = card_file_path(msg.sender)
                 if not verify_agent_card(c_path, expected_org_id=org_id):
                     raise ValueError(f"AgentCard org tenancy check failed for {msg.sender} (expected org_id={org_id})")
 

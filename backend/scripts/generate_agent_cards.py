@@ -47,7 +47,7 @@ async def main() -> int:
             agent_id=iid,
             display_name=name,
         )
-        path = card_file_path(card.agent_id)
+        path = card_file_path(card.agent_id, card.org_id)
         generated.append((iid, role, path))
         print(f"    agent_id   : {card.agent_id}")
         print(f"    display    : {card.display_name}")

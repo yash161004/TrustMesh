@@ -128,7 +128,7 @@ class TestSigning:
             org_id="org_123",
             owner_user_id="user_abc",
         )
-        path = card_file_path("agent-org-test")
+        path = card_file_path("agent-org-test", "org_123")
         assert verify_agent_card(path, expected_org_id="org_123") is True
         assert verify_agent_card(path, expected_org_id="org_999") is False
 

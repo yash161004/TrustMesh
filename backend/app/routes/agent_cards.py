@@ -68,7 +68,9 @@ async def get_agent_reputation_route(
     current_user: User = Depends(get_current_user),
 ):
     """Fetch cross-session reputation for a specific agent with org tenancy enforcement."""
-    path = card_file_path(agent_id)
+    path = card_file_path(agent_id, current_user.org_id)
+    if not path.exists():
+        path = card_file_path(agent_id)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Agent card not found")
 

@@ -65,11 +65,10 @@ async def run_session(client: httpx.AsyncClient, org_id: str, session_index: int
     headers = {"Authorization": f"Bearer test-user-{org_id}"}
 
     # 1. Create Session with mock provider to avoid LLM rate limits.
-    #    AgentCards are globally-unique, org-owned identities (one card file per
-    #    agent_id), so each org must use its own agent_ids — reusing a bare
-    #    "buyer-N" across orgs would make them fight over the same card file.
-    buyer_agent_id = f"buyer-{org_id}-{session_index}"
-    seller_agent_id = f"seller-{org_id}-{session_index}"
+    #    AgentCards are org-scoped by (org_id, agent_id), so different orgs can
+    #    safely share identical agent_ids (e.g. buyer-0) without card collision.
+    buyer_agent_id = f"buyer-{session_index}"
+    seller_agent_id = f"seller-{session_index}"
     create_payload = {
         "buyer_agent_id": buyer_agent_id,
         "seller_agent_id": seller_agent_id,
